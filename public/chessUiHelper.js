@@ -160,6 +160,30 @@ export function resolveInviteUrl(origin, gameId) {
 }
 
 /**
+ * Builds the WebSocket URL for a friend room's real-time chat channel from window.location fields.
+ *
+ * @param {{ protocol?: string, host?: string }} locationLike - Browser location object.
+ * @param {string} gameId - Friend room identifier.
+ * @returns {string} WebSocket URL using ws:// or wss://.
+ */
+export function resolveChatWsUrl(locationLike, gameId) {
+  const wsProtocol = locationLike?.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = String(locationLike?.host ?? '');
+  return `${wsProtocol}//${host}/api/games/${encodeURIComponent(gameId)}/chat-ws`;
+}
+
+/**
+ * Determines whether the current viewer is permitted to send chat messages in this match.
+ *
+ * @param {object | null} game - Current game snapshot.
+ * @param {'w' | 'b' | null} viewerColor - Controlled seat color, or null when spectating.
+ * @returns {boolean} True only for seated players in a friend room.
+ */
+export function canSendMatchChat(game, viewerColor) {
+  return Boolean(game && game.mode === 'friend' && (viewerColor === 'w' || viewerColor === 'b'));
+}
+
+/**
  * Determines whether the current viewer can select and move pieces on the board.
  *
  * @param {object | null} game - Current game snapshot.

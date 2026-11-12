@@ -4,6 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { listBotProfiles } from '../domain/botProfiles.js';
 import { listTimeControls } from '../domain/timeControls.js';
+import { attachChatWebSocketServer } from './chatWs.js';
 import {
   GameNotFoundError,
   GameOverError,
@@ -379,12 +380,15 @@ export function createHttpServer({ gameService, publicDir, stockfishDir }) {
     }
   });
 
-  // Terminate open SSE streams before closing so shutdown and tests never hang on keep-alive sockets.
+  const chatWs = attachChatWebSocketServer({ server, gameService });
+
+  // Terminate open SSE and WebSocket streams before closing so shutdown and tests never hang on keep-alive sockets.
   const originalClose = server.close.bind(server);
   server.close = (callback) => {
     for (const cleanup of [...activeSseCleanups]) {
       cleanup();
     }
+    chatWs.close();
     return originalClose(callback);
   };
 

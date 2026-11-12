@@ -282,7 +282,29 @@
             <p id="analysis-move-note" class="analysis-move-note" hidden></p>
           </div>
 
-          <div class="moves-section">
+          <div id="play-subtabs" class="play-subtabs" role="tablist" aria-label="Play view sections" hidden>
+            <button
+              id="subtab-moves-btn"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              class="play-subtab is-active"
+            >
+              Moves
+            </button>
+            <button
+              id="subtab-chat-btn"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              class="play-subtab"
+            >
+              <span>Chat</span>
+              <span id="chat-unread-badge" class="chat-unread-badge" hidden>0</span>
+            </button>
+          </div>
+
+          <div id="moves-section" class="moves-section">
             <div class="moves-toolbar">
               <span class="moves-label">Moves</span>
               <div class="history-controls" role="group" aria-label="Move navigation">
@@ -329,6 +351,36 @@
               </div>
             </div>
             <div id="move-history" class="move-history" aria-live="polite"></div>
+          </div>
+
+          <div id="chat-section" class="chat-section" hidden>
+            <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
+            <div id="chat-quick-bar" class="chat-quick-bar" aria-label="Quick chat replies">
+              <button type="button" class="chat-quick-btn" data-chat-text="Good luck!">Good luck!</button>
+              <button type="button" class="chat-quick-btn" data-chat-text="Well played!">Well played!</button>
+              <button type="button" class="chat-quick-btn" data-chat-text="Good game!">Good game!</button>
+              <button type="button" class="chat-quick-btn" data-chat-text="Thanks!">Thanks!</button>
+              <button type="button" class="chat-quick-btn" data-chat-text="👋" aria-label="Wave">👋</button>
+              <button type="button" class="chat-quick-btn" data-chat-text="🤝" aria-label="Handshake">🤝</button>
+              <button type="button" class="chat-quick-btn" data-chat-text="👏" aria-label="Clap">👏</button>
+            </div>
+            <form id="chat-form" class="chat-form">
+              <input
+                id="chat-input"
+                type="text"
+                class="text-input"
+                maxlength="200"
+                autocomplete="off"
+                placeholder="Send a message..."
+                aria-label="Chat message"
+              />
+              <button id="chat-send-btn" type="submit" class="btn btn-green btn-compact">
+                Send
+              </button>
+            </form>
+            <p id="chat-readonly-note" class="chat-readonly-note" hidden>
+              Spectators can view chat only.
+            </p>
           </div>
 
           <div class="match-actions">

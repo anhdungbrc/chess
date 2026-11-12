@@ -5,6 +5,7 @@ import { resolveBotSelection } from '../domain/botProfiles.js';
 import { findTimeControl } from '../domain/timeControls.js';
 
 const MAX_STORED_GAMES = 200;
+const MAX_CHAT_MESSAGES = 100;
 
 /**
  * Error thrown when a requested game ID does not exist in memory.
@@ -484,6 +485,56 @@ export function createGameService({
 } = {}) {
   const games = new Map();
   const subscribers = new Map();
+  const chatSubscribers = new Map();
+
+  /**
+   * Dispatches a payload to all listeners registered for a game room without letting one failure block others.
+   *
+   * @param {Map<string, Set<Function>>} listenerMap - Target listener registry.
+   * @param {string} gameId - Target game identifier.
+   * @param {unknown} payload - Event payload passed to each listener.
+   * @returns {void}
+   */
+  function emitRoomListeners(listenerMap, gameId, payload) {
+    const listeners = listenerMap.get(gameId);
+    if (!listeners || listeners.size === 0) {
+      return;
+    }
+    for (const listener of [...listeners]) {
+      try {
+        listener(payload);
+      } catch {
+        // Isolate listener failures so one closed stream does not block remaining subscribers.
+      }
+    }
+  }
+
+  /**
+   * Registers a room-scoped listener in a registry map and returns an idempotent unsubscribe handle.
+   *
+   * @param {Map<string, Set<Function>>} listenerMap - Target listener registry.
+   * @param {string} gameId - Target game identifier.
+   * @param {Function} listener - Callback to register.
+   * @returns {() => void} Unsubscribe cleanup callback.
+   */
+  function addRoomListener(listenerMap, gameId, listener) {
+    let listeners = listenerMap.get(gameId);
+    if (!listeners) {
+      listeners = new Set();
+      listenerMap.set(gameId, listeners);
+    }
+    listeners.add(listener);
+    return () => {
+      const current = listenerMap.get(gameId);
+      if (!current) {
+        return;
+      }
+      current.delete(listener);
+      if (current.size === 0) {
+        listenerMap.delete(gameId);
+      }
+    };
+  }
 
   /**
    * Broadcasts the latest public snapshot to all active SSE listeners subscribed to a game.
@@ -492,18 +543,113 @@ export function createGameService({
    * @returns {void}
    */
   function notifySubscribers(record) {
-    const listeners = subscribers.get(record.id);
-    if (!listeners || listeners.size === 0) {
+    if (!subscribers.has(record.id)) {
       return;
     }
-    const publicSnapshot = buildSnapshot(record);
-    for (const listener of [...listeners]) {
-      try {
-        listener(publicSnapshot);
-      } catch {
-        // Isolate listener failures so one closed stream does not block remaining subscribers.
-      }
+    emitRoomListeners(subscribers, record.id, buildSnapshot(record));
+  }
+
+  /**
+   * Appends a chat entry to a friend room while capping history length and notifies active chat subscribers.
+   *
+   * @param {object} record - Stored friend game record.
+   * @param {object} entry - Formatted chat entry.
+   * @returns {object} Stored chat entry copy.
+   */
+  function appendChatEntry(record, entry) {
+    record.chatMessages.push(entry);
+    // Evict oldest messages so long-lived rematch rooms stay bounded in memory.
+    if (record.chatMessages.length > MAX_CHAT_MESSAGES) {
+      record.chatMessages.splice(0, record.chatMessages.length - MAX_CHAT_MESSAGES);
     }
+    const snapshot = { ...entry };
+    emitRoomListeners(chatSubscribers, record.id, snapshot);
+    return snapshot;
+  }
+
+  /**
+   * Resolves a player display name for a given side in a friend room.
+   *
+   * @param {object} record - Stored friend game record.
+   * @param {'w' | 'b'} color - Target color.
+   * @returns {string} Seat display name or color fallback.
+   */
+  function getSeatDisplayName(record, color) {
+    return record.seats?.[color]?.name ?? (color === 'w' ? 'White' : 'Black');
+  }
+
+  /**
+   * Emits a system-authored chat message in a friend room.
+   *
+   * @param {object} record - Stored friend game record.
+   * @param {string} text - System event description.
+   * @param {{ isRoundDivider?: boolean }} [options] - Optional round separator flag.
+   * @returns {void}
+   */
+  function appendSystemChat(record, text, { isRoundDivider = false } = {}) {
+    if (record.mode !== 'friend') {
+      return;
+    }
+    appendChatEntry(record, {
+      id: crypto.randomUUID(),
+      kind: 'system',
+      round: record.round,
+      text,
+      timestamp: now(),
+      ...(isRoundDivider ? { isRoundDivider: true } : {}),
+    });
+  }
+
+  /**
+   * Formats the round-start banner message showing assigned White and Black players.
+   *
+   * @param {object} record - Stored friend game record.
+   * @returns {string} Round start summary text.
+   */
+  function formatRoundStartText(record) {
+    return `Round ${record.round} started — ${getSeatDisplayName(record, 'w')} (White) vs ${getSeatDisplayName(record, 'b')} (Black)`;
+  }
+
+  /**
+   * Formats a board-termination system chat message when a friend move ends the match.
+   *
+   * @param {object} record - Stored friend game record.
+   * @returns {string} Human-readable outcome description.
+   */
+  function formatFriendOutcomeChat(record) {
+    const { status, winner } = resolveGameOutcome(record);
+    if (status === 'checkmate' && winner) {
+      return `${getSeatDisplayName(record, winner)} won by checkmate`;
+    }
+    const drawLabels = {
+      stalemate: 'Game drawn by stalemate',
+      threefold_repetition: 'Game drawn by threefold repetition',
+      insufficient_material: 'Game drawn by insufficient material',
+      fifty_move_rule: 'Game drawn by 50-move rule',
+    };
+    return drawLabels[status] ?? 'Game drawn';
+  }
+
+  /**
+   * Synchronizes clock state and emits a system chat message when a friend clock flags.
+   *
+   * @param {object} record - Stored game record.
+   * @param {number} currentNow - Current epoch timestamp in milliseconds.
+   * @returns {boolean} True when this sync transitioned the game into a timeout state.
+   */
+  function syncClockAndRecordTimeout(record, currentNow) {
+    const wasTimedOut = Boolean(record.timedOutColor);
+    syncClockState(record, currentNow);
+    const newlyTimedOut = !wasTimedOut && Boolean(record.timedOutColor);
+    if (newlyTimedOut && record.mode === 'friend') {
+      const loser = record.timedOutColor;
+      const winner = loser === 'w' ? 'b' : 'w';
+      appendSystemChat(
+        record,
+        `${getSeatDisplayName(record, loser)} ran out of time — ${getSeatDisplayName(record, winner)} won`
+      );
+    }
+    return newlyTimedOut;
   }
 
   /**
@@ -517,6 +663,7 @@ export function createGameService({
       const oldestKey = games.keys().next().value;
       games.delete(oldestKey);
       subscribers.delete(oldestKey);
+      chatSubscribers.delete(oldestKey);
     }
     games.set(record.id, record);
   }
@@ -568,6 +715,7 @@ export function createGameService({
         pendingDrawBy: null,
         pendingTakebackBy: null,
         pendingRematchBy: null,
+        chatMessages: [],
         isProcessing: false,
       };
       saveGameRecord(record);
@@ -640,6 +788,7 @@ export function createGameService({
       slot: 'p2',
     };
 
+    appendSystemChat(record, formatRoundStartText(record), { isRoundDivider: true });
     notifySubscribers(record);
     return {
       ...buildSnapshot(record, openColor),
@@ -659,9 +808,7 @@ export function createGameService({
     if (!record) {
       return null;
     }
-    const wasTimedOut = Boolean(record.timedOutColor);
-    syncClockState(record, now());
-    if (!wasTimedOut && record.timedOutColor) {
+    if (syncClockAndRecordTimeout(record, now())) {
       notifySubscribers(record);
     }
     const viewerColor = resolveSeatByToken(record, playerToken);
@@ -715,7 +862,7 @@ export function createGameService({
 
     const actorColor = requireActorColor(record, playerToken);
     const moveTime = now();
-    syncClockState(record, moveTime);
+    syncClockAndRecordTimeout(record, moveTime);
 
     if (isRecordGameOver(record)) {
       throw new GameOverError('Cannot make a move after the game has ended');
@@ -748,6 +895,9 @@ export function createGameService({
         // Playing a move implicitly clears any open draw or takeback requests.
         record.pendingDrawBy = null;
         record.pendingTakebackBy = null;
+        if (isRecordGameOver(record)) {
+          appendSystemChat(record, formatFriendOutcomeChat(record));
+        }
         notifySubscribers(record);
         return {
           game: buildSnapshot(record, actorColor),
@@ -808,7 +958,7 @@ export function createGameService({
     }
 
     const actorColor = requireActorColor(record, playerToken);
-    syncClockState(record, now());
+    syncClockAndRecordTimeout(record, now());
     if (isRecordGameOver(record)) {
       throw new GameOverError('Cannot resign after the game has ended');
     }
@@ -818,6 +968,13 @@ export function createGameService({
     record.pendingTakebackBy = null;
     if (record.clock) {
       record.clock.activeSince = null;
+    }
+    if (record.mode === 'friend') {
+      const winnerColor = actorColor === 'w' ? 'b' : 'w';
+      appendSystemChat(
+        record,
+        `${getSeatDisplayName(record, actorColor)} resigned — ${getSeatDisplayName(record, winnerColor)} won`
+      );
     }
     notifySubscribers(record);
     return buildSnapshot(record, record.mode === 'friend' ? actorColor : null);
@@ -845,7 +1002,7 @@ export function createGameService({
     }
 
     const actorColor = requireActorColor(record, playerToken);
-    syncClockState(record, now());
+    syncClockAndRecordTimeout(record, now());
     const finished = isRecordGameOver(record);
 
     if (requirePlaying && finished) {
@@ -880,6 +1037,7 @@ export function createGameService({
         throw new InvalidGameStateError('A draw offer is already pending');
       }
       record.pendingDrawBy = actorColor;
+      appendSystemChat(record, `${getSeatDisplayName(record, actorColor)} offered a draw`);
     } else if (action === 'accept') {
       if (record.pendingDrawBy !== opponentColor) {
         throw new InvalidGameStateError('No opponent draw offer to accept');
@@ -890,11 +1048,19 @@ export function createGameService({
       if (record.clock) {
         record.clock.activeSince = null;
       }
+      appendSystemChat(
+        record,
+        `${getSeatDisplayName(record, actorColor)} accepted the draw — Game drawn`
+      );
     } else if (action === 'decline') {
       if (record.pendingDrawBy !== opponentColor) {
         throw new InvalidGameStateError('No opponent draw offer to decline');
       }
       record.pendingDrawBy = null;
+      appendSystemChat(
+        record,
+        `${getSeatDisplayName(record, actorColor)} declined the draw offer`
+      );
     }
 
     notifySubscribers(record);
@@ -923,6 +1089,7 @@ export function createGameService({
         throw new InvalidGameStateError('A takeback request is already pending');
       }
       record.pendingTakebackBy = actorColor;
+      appendSystemChat(record, `${getSeatDisplayName(record, actorColor)} requested a takeback`);
     } else if (action === 'accept') {
       const requesterColor = record.pendingTakebackBy;
       if (requesterColor !== opponentColor) {
@@ -938,11 +1105,13 @@ export function createGameService({
       record.pendingTakebackBy = null;
       record.pendingDrawBy = null;
       restoreClockToHistoryLength(record, now());
+      appendSystemChat(record, `${getSeatDisplayName(record, actorColor)} accepted the takeback`);
     } else if (action === 'decline') {
       if (record.pendingTakebackBy !== opponentColor) {
         throw new InvalidGameStateError('No opponent takeback request to decline');
       }
       record.pendingTakebackBy = null;
+      appendSystemChat(record, `${getSeatDisplayName(record, actorColor)} declined the takeback`);
     }
 
     notifySubscribers(record);
@@ -967,25 +1136,100 @@ export function createGameService({
         throw new InvalidGameStateError('Rematch request is already pending');
       }
       if (record.pendingRematchBy === opponentColor) {
-        // Mutual simultaneous rematch requests immediately start the swapped round.
+        // Mutual simultaneous rematch requests immediately start the swapped round while preserving chat history.
         startNextFriendRound(record);
+        appendSystemChat(record, formatRoundStartText(record), { isRoundDivider: true });
       } else {
         record.pendingRematchBy = actorColor;
+        appendSystemChat(record, `${getSeatDisplayName(record, actorColor)} requested a rematch`);
       }
     } else if (action === 'accept') {
       if (record.pendingRematchBy !== opponentColor) {
         throw new InvalidGameStateError('No opponent rematch request to accept');
       }
       startNextFriendRound(record);
+      appendSystemChat(record, formatRoundStartText(record), { isRoundDivider: true });
     } else if (action === 'decline') {
       if (record.pendingRematchBy !== opponentColor) {
         throw new InvalidGameStateError('No opponent rematch request to decline');
       }
       record.pendingRematchBy = null;
+      appendSystemChat(record, `${getSeatDisplayName(record, actorColor)} declined the rematch`);
     }
 
     notifySubscribers(record);
     return buildSnapshot(record, resolveSeatByToken(record, playerToken));
+  }
+
+  /**
+   * Retrieves an existing friend room record for chat operations or throws if missing or bot mode.
+   *
+   * @param {string} gameId - Target game identifier.
+   * @returns {object} Stored friend game record.
+   * @throws {GameNotFoundError | InvalidGameStateError} When game is missing or not a friend room.
+   */
+  function requireFriendChatRoom(gameId) {
+    const record = games.get(gameId);
+    if (!record) {
+      throw new GameNotFoundError(gameId);
+    }
+    if (record.mode !== 'friend') {
+      throw new InvalidGameStateError('Chat is only supported in friend games');
+    }
+    return record;
+  }
+
+  /**
+   * Appends a player-authored chat message to a friend room after verifying seat ownership.
+   *
+   * @param {string} gameId - Target friend room identifier.
+   * @param {string | undefined} playerToken - Caller seat token.
+   * @param {string} text - Validated chat text.
+   * @returns {object} Stored chat message entry.
+   * @throws {GameNotFoundError | InvalidGameStateError | UnauthorizedActionError} When missing, bot mode, or not a seated player.
+   */
+  function sendChatMessage(gameId, playerToken, text) {
+    const record = requireFriendChatRoom(gameId);
+    const senderColor = resolveSeatByToken(record, playerToken);
+    if (!senderColor) {
+      throw new UnauthorizedActionError('Valid player token is required to send chat messages');
+    }
+    const seat = record.seats[senderColor];
+    return appendChatEntry(record, {
+      id: crypto.randomUUID(),
+      kind: 'player',
+      senderName: seat.name,
+      senderSlot: seat.slot,
+      senderColor,
+      round: record.round,
+      text,
+      timestamp: now(),
+    });
+  }
+
+  /**
+   * Lists the current in-memory chat history for a friend room.
+   *
+   * @param {string} gameId - Target friend room identifier.
+   * @returns {Array<object>} Cloned list of chat entries.
+   * @throws {GameNotFoundError | InvalidGameStateError} When missing or not a friend room.
+   */
+  function listChatMessages(gameId) {
+    const record = requireFriendChatRoom(gameId);
+    return record.chatMessages.map((entry) => ({ ...entry }));
+  }
+
+  /**
+   * Registers a listener for real-time chat messages on a friend room and returns an unsubscribe handle.
+   *
+   * @param {string} gameId - Target friend room identifier.
+   * @param {(entry: object) => void} listener - Callback invoked when a chat entry is appended.
+   * @returns {() => void} Unsubscribe cleanup function.
+   * @throws {GameNotFoundError | InvalidGameStateError} When missing or not a friend room.
+   */
+  function subscribeChat(gameId, listener) {
+    requireFriendChatRoom(gameId);
+    return addRoomListener(chatSubscribers, gameId, listener);
   }
 
   /**
@@ -1000,22 +1244,7 @@ export function createGameService({
     if (!games.has(gameId)) {
       throw new GameNotFoundError(gameId);
     }
-    let listeners = subscribers.get(gameId);
-    if (!listeners) {
-      listeners = new Set();
-      subscribers.set(gameId, listeners);
-    }
-    listeners.add(listener);
-    return () => {
-      const current = subscribers.get(gameId);
-      if (!current) {
-        return;
-      }
-      current.delete(listener);
-      if (current.size === 0) {
-        subscribers.delete(gameId);
-      }
-    };
+    return addRoomListener(subscribers, gameId, listener);
   }
 
   /**
@@ -1070,6 +1299,9 @@ export function createGameService({
     findGame,
     getGame,
     subscribeGame,
+    sendChatMessage,
+    listChatMessages,
+    subscribeChat,
     syncClock,
     applyPlayerMove,
     resignGame,

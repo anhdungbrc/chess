@@ -4,8 +4,10 @@ import { formatReviewMoveLabel, resolveReviewViewState } from './reviewHelper.js
 import {
   applyOptimisticMove,
   canInteractWithBoard,
+  canSendMatchChat,
   computeCapturedMaterial,
   formatClockMs,
+  resolveChatWsUrl,
   resolveInviteUrl,
   resolveSquareFromPoint,
   resolveViewerColor,
@@ -77,12 +79,18 @@ const state = {
   selectedColor: 'w',
   selectedTimeControl: '10+0',
   activeTab: 'play',
+  activePlaySubtab: 'moves',
   isMuted: false,
   isFlipped: false,
   game: null,
   seatToken: null,
   viewerSlot: null,
   eventSource: null,
+  chatSocket: null,
+  chatSocketGameId: null,
+  chatReconnectTimer: null,
+  chatMessages: [],
+  unreadChatCount: 0,
   selectedSquare: null,
   isPendingRequest: false,
   pendingPromotion: null,
@@ -167,6 +175,18 @@ const elements = {
   reviewNextBtn: document.getElementById('review-next-btn'),
   reviewLiveBtn: document.getElementById('review-live-btn'),
   moveHistory: document.getElementById('move-history'),
+  playSubtabs: document.getElementById('play-subtabs'),
+  subtabMovesBtn: document.getElementById('subtab-moves-btn'),
+  subtabChatBtn: document.getElementById('subtab-chat-btn'),
+  chatUnreadBadge: document.getElementById('chat-unread-badge'),
+  movesSection: document.getElementById('moves-section'),
+  chatSection: document.getElementById('chat-section'),
+  chatMessages: document.getElementById('chat-messages'),
+  chatQuickBar: document.getElementById('chat-quick-bar'),
+  chatForm: document.getElementById('chat-form'),
+  chatInput: document.getElementById('chat-input'),
+  chatSendBtn: document.getElementById('chat-send-btn'),
+  chatReadonlyNote: document.getElementById('chat-readonly-note'),
   promotionModal: document.getElementById('promotion-modal'),
   promotionChoices: document.getElementById('promotion-choices'),
   promotionCancelBtn: document.getElementById('promotion-cancel-btn'),
@@ -1311,6 +1331,9 @@ function renderApp() {
     elements.evalBar.hidden = true;
     elements.analysisPanel.hidden = true;
     elements.gameOverModal.hidden = true;
+    elements.playSubtabs.hidden = true;
+    elements.movesSection.hidden = false;
+    elements.chatSection.hidden = true;
     return;
   }
 
@@ -1419,6 +1442,7 @@ function renderApp() {
   renderEvalBar(view, activeAnalysis);
   renderBoard(view, activeAnalysis);
   renderHistory(view, activeAnalysis);
+  renderChatPanel(game, viewerColor);
   renderAnalysisPanel(view, activeAnalysis);
   renderGameOverModal(game);
 }
@@ -2016,6 +2040,233 @@ function disconnectGameEvents() {
 }
 
 /**
+ * Switches between the Moves and Chat sub-tabs inside the Play panel and clears unread chat counts.
+ *
+ * @param {'moves' | 'chat'} subtab - Target Play sub-tab.
+ * @returns {void}
+ */
+function setPlaySubtab(subtab) {
+  state.activePlaySubtab = subtab === 'chat' ? 'chat' : 'moves';
+  if (state.activePlaySubtab === 'chat') {
+    state.unreadChatCount = 0;
+  }
+  renderChatPanel(state.game, getViewerColor());
+}
+
+/**
+ * Renders the friend-match chat sub-tabs, unread counter, message list, quick-chat bar, and input permissions.
+ *
+ * @param {object | null} game - Current game snapshot.
+ * @param {'w' | 'b' | null} viewerColor - Controlled seat color, or null for spectators.
+ * @returns {void}
+ */
+function renderChatPanel(game, viewerColor) {
+  const isFriendMode = game?.mode === 'friend';
+  elements.playSubtabs.hidden = !isFriendMode;
+
+  if (!isFriendMode) {
+    elements.movesSection.hidden = false;
+    elements.chatSection.hidden = true;
+    elements.chatUnreadBadge.hidden = true;
+    return;
+  }
+
+  const isChatOpen = state.activePlaySubtab === 'chat';
+  elements.subtabMovesBtn.classList.toggle('is-active', !isChatOpen);
+  elements.subtabMovesBtn.setAttribute('aria-selected', String(!isChatOpen));
+  elements.subtabChatBtn.classList.toggle('is-active', isChatOpen);
+  elements.subtabChatBtn.setAttribute('aria-selected', String(isChatOpen));
+
+  elements.movesSection.hidden = isChatOpen;
+  elements.chatSection.hidden = !isChatOpen;
+
+  if (!isChatOpen && state.unreadChatCount > 0) {
+    elements.chatUnreadBadge.hidden = false;
+    elements.chatUnreadBadge.textContent =
+      state.unreadChatCount > 99 ? '99+' : String(state.unreadChatCount);
+  } else {
+    elements.chatUnreadBadge.hidden = true;
+    elements.chatUnreadBadge.textContent = '0';
+  }
+
+  const canChat = canSendMatchChat(game, viewerColor);
+  elements.chatQuickBar.hidden = !canChat;
+  elements.chatForm.hidden = !canChat;
+  elements.chatReadonlyNote.hidden = canChat;
+  elements.chatInput.disabled = !canChat;
+  elements.chatSendBtn.disabled = !canChat;
+
+  elements.chatMessages.innerHTML = '';
+  if (state.chatMessages.length === 0) {
+    const emptyEl = document.createElement('p');
+    emptyEl.className = 'chat-empty';
+    emptyEl.textContent = 'No messages yet. Say hello!';
+    elements.chatMessages.appendChild(emptyEl);
+  } else {
+    for (const msg of state.chatMessages) {
+      const itemEl = document.createElement('div');
+      if (msg.kind === 'system') {
+        itemEl.className = msg.isRoundDivider
+          ? 'chat-msg is-system is-round-divider'
+          : 'chat-msg is-system';
+        itemEl.textContent = msg.text;
+      } else {
+        const isSelf = Boolean(state.viewerSlot && msg.senderSlot === state.viewerSlot);
+        itemEl.className = `chat-msg ${isSelf ? 'is-self' : 'is-opponent'}`;
+        const senderEl = document.createElement('span');
+        senderEl.className = 'chat-sender';
+        senderEl.textContent = `${msg.senderName}:`;
+        const bodyEl = document.createElement('span');
+        bodyEl.textContent = msg.text;
+        itemEl.append(senderEl, bodyEl);
+      }
+      elements.chatMessages.appendChild(itemEl);
+    }
+  }
+
+  if (isChatOpen) {
+    elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
+  }
+}
+
+/**
+ * Closes any active WebSocket chat connection and cancels pending reconnect timers.
+ *
+ * @returns {void}
+ */
+function disconnectChatSocket() {
+  if (state.chatReconnectTimer) {
+    clearTimeout(state.chatReconnectTimer);
+    state.chatReconnectTimer = null;
+  }
+  state.chatSocketGameId = null;
+  if (state.chatSocket) {
+    const socket = state.chatSocket;
+    state.chatSocket = null;
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onclose = null;
+    socket.onerror = null;
+    socket.close();
+  }
+}
+
+/**
+ * Sends the viewer's seat token over an open chat WebSocket so the server enables sending messages.
+ *
+ * @returns {void}
+ */
+function authenticateChatSocket() {
+  if (state.chatSocket?.readyState === WebSocket.OPEN && state.seatToken) {
+    state.chatSocket.send(
+      JSON.stringify({ type: 'auth', playerToken: state.seatToken })
+    );
+  }
+}
+
+/**
+ * Appends a single incoming WebSocket chat message while avoiding duplicates and updating unread badges.
+ *
+ * @param {object} message - Server chat entry payload.
+ * @returns {void}
+ */
+function handleIncomingChatMessage(message) {
+  if (!message || !message.id) {
+    return;
+  }
+  if (state.chatMessages.some((entry) => entry.id === message.id)) {
+    return;
+  }
+  state.chatMessages.push(message);
+  if (state.chatMessages.length > 100) {
+    state.chatMessages.splice(0, state.chatMessages.length - 100);
+  }
+  if (
+    state.activePlaySubtab !== 'chat' &&
+    message.kind === 'player' &&
+    message.senderSlot !== state.viewerSlot
+  ) {
+    state.unreadChatCount += 1;
+  }
+  renderChatPanel(state.game, getViewerColor());
+}
+
+/**
+ * Opens a WebSocket connection for real-time friend match chat and auto-reconnects on transient drops.
+ *
+ * @param {string} gameId - Friend room identifier.
+ * @returns {void}
+ */
+function connectChatSocket(gameId) {
+  disconnectChatSocket();
+  if (typeof WebSocket !== 'function' || !gameId) {
+    return;
+  }
+
+  state.chatSocketGameId = gameId;
+  const socket = new WebSocket(resolveChatWsUrl(window.location, gameId));
+  state.chatSocket = socket;
+
+  socket.onopen = () => {
+    authenticateChatSocket();
+  };
+
+  socket.onmessage = (event) => {
+    try {
+      const frame = JSON.parse(String(event.data));
+      if (frame.type === 'history') {
+        state.chatMessages = Array.isArray(frame.messages) ? frame.messages.slice(-100) : [];
+        renderChatPanel(state.game, getViewerColor());
+      } else if (frame.type === 'chat') {
+        handleIncomingChatMessage(frame.message);
+      } else if (frame.type === 'error' && frame.message) {
+        setErrorMessage(frame.message);
+      }
+    } catch {
+      // Ignore malformed WebSocket frames so the connection remains usable.
+    }
+  };
+
+  socket.onclose = () => {
+    if (state.chatSocket !== socket) {
+      return;
+    }
+    state.chatSocket = null;
+    if (state.game?.mode === 'friend' && state.game?.id === gameId && state.chatSocketGameId === gameId) {
+      state.chatReconnectTimer = setTimeout(() => {
+        if (state.game?.mode === 'friend' && state.game?.id === gameId) {
+          connectChatSocket(gameId);
+        }
+      }, 2000);
+    }
+  };
+}
+
+/**
+ * Sends a chat message or quick-chat phrase over the active friend room WebSocket.
+ *
+ * @param {string} rawText - Candidate message text.
+ * @returns {boolean} True when the frame was dispatched over an open socket.
+ */
+function sendChatText(rawText) {
+  const viewerColor = getViewerColor();
+  if (!canSendMatchChat(state.game, viewerColor)) {
+    return false;
+  }
+  const text = String(rawText ?? '').trim();
+  if (!text) {
+    return false;
+  }
+  if (state.chatSocket?.readyState !== WebSocket.OPEN) {
+    setErrorMessage('Chat is connecting, please try again in a moment.');
+    return false;
+  }
+  setErrorMessage(null);
+  state.chatSocket.send(JSON.stringify({ type: 'chat', text }));
+  return true;
+}
+
+/**
  * Applies an incoming public game snapshot received over SSE without duplicating own-move sounds.
  *
  * @param {object} incoming - Parsed public game snapshot from the server SSE stream.
@@ -2118,6 +2369,10 @@ async function startNewGame(override = {}) {
     state.analysis = null;
     state.analysisKey = null;
     disconnectGameEvents();
+    disconnectChatSocket();
+    state.chatMessages = [];
+    state.unreadChatCount = 0;
+    state.activePlaySubtab = 'moves';
     const payload =
       mode === 'friend'
         ? { mode: 'friend', playerColor, timeControl, ...(playerName ? { playerName } : {}) }
@@ -2146,6 +2401,7 @@ async function startNewGame(override = {}) {
       }
       state.isFlipped = getViewerColor() === 'b';
       connectGameEvents(created.id);
+      connectChatSocket(created.id);
     } else {
       if (window.history?.replaceState && window.location?.search) {
         window.history.replaceState(null, '', '/');
@@ -2184,6 +2440,11 @@ async function joinFriendMatch() {
     syncLocalClockBaseline(joined);
     if (!state.eventSource) {
       connectGameEvents(joined.id);
+    }
+    if (state.chatSocket?.readyState === WebSocket.OPEN) {
+      authenticateChatSocket();
+    } else {
+      connectChatSocket(joined.id);
     }
   });
 }
@@ -2542,6 +2803,7 @@ async function bootstrapApp() {
         state.selectedMode = 'friend';
         state.isFlipped = getViewerColor() === 'b';
         connectGameEvents(loaded.id);
+        connectChatSocket(loaded.id);
       } else {
         state.isFlipped = loaded.playerColor === 'b';
       }
@@ -2570,6 +2832,21 @@ elements.navFlipBtn.addEventListener('click', toggleBoardFlip);
 elements.navSoundBtn.addEventListener('click', toggleSoundMute);
 elements.tabPlayBtn.addEventListener('click', () => setActiveTab('play'));
 elements.tabSetupBtn.addEventListener('click', () => setActiveTab('setup'));
+elements.subtabMovesBtn.addEventListener('click', () => setPlaySubtab('moves'));
+elements.subtabChatBtn.addEventListener('click', () => setPlaySubtab('chat'));
+elements.chatForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  if (sendChatText(elements.chatInput.value)) {
+    elements.chatInput.value = '';
+  }
+});
+elements.chatQuickBar.addEventListener('click', (event) => {
+  const btn = event.target.closest('.chat-quick-btn');
+  if (!btn) {
+    return;
+  }
+  sendChatText(btn.dataset.chatText ?? '');
+});
 
 elements.modeBotBtn.addEventListener('click', () => setSelectedMode('bot'));
 elements.modeFriendBtn.addEventListener('click', () => setSelectedMode('friend'));

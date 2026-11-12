@@ -1088,3 +1088,150 @@ async function testRealInstalledStockfishAssetsServed() {
 }
 
 test('serves real installed Stockfish lite-single JS and WASM binary', testRealInstalledStockfishAssetsServed);
+
+/**
+ * Opens a WebSocket client connection and buffers incoming JSON frames for sequential assertions.
+ *
+ * @param {string} wsUrl - Target ws:// URL.
+ * @returns {Promise<{ sendJson: (payload: object) => void, nextMessage: (timeoutMs?: number) => Promise<object>, close: () => void }>} Connected client helper.
+ */
+function openWsClient(wsUrl) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(wsUrl);
+    const queue = [];
+    const waiters = [];
+
+    ws.addEventListener('message', (event) => {
+      const parsed = JSON.parse(String(event.data));
+      if (waiters.length > 0) {
+        waiters.shift().resolve(parsed);
+      } else {
+        queue.push(parsed);
+      }
+    });
+
+    ws.addEventListener('open', () => {
+      resolve({
+        sendJson(payload) {
+          ws.send(JSON.stringify(payload));
+        },
+        nextMessage(timeoutMs = 2000) {
+          if (queue.length > 0) {
+            return Promise.resolve(queue.shift());
+          }
+          return new Promise((res, rej) => {
+            const timer = setTimeout(() => {
+              const idx = waiters.findIndex((w) => w.resolve === wrappedResolve);
+              if (idx >= 0) {
+                waiters.splice(idx, 1);
+              }
+              rej(new Error('Timed out waiting for WebSocket message'));
+            }, timeoutMs);
+            const wrappedResolve = (value) => {
+              clearTimeout(timer);
+              res(value);
+            };
+            waiters.push({ resolve: wrappedResolve });
+          });
+        },
+        close() {
+          ws.close();
+        },
+      });
+    });
+
+    ws.addEventListener('error', () => {
+      reject(new Error(`WebSocket connection failed: ${wsUrl}`));
+    });
+  });
+}
+
+/**
+ * Verifies WebSocket /api/games/:id/chat-ws delivers history, authenticates players, broadcasts real-time chat, blocks spectators from sending, and closes cleanly.
+ * Expected: missing/bot rooms reject upgrade; players exchange authenticated chat; spectators only read; server closes without hanging.
+ */
+async function testFriendChatWebSocketServer() {
+  const ctx = await startTestServer();
+  const wsBase = ctx.baseUrl.replace(/^http:/, 'ws:');
+  const clients = [];
+  try {
+    const botRes = await fetch(`${ctx.baseUrl}/api/games`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'bot', playerColor: 'w', difficulty: 'easy' }),
+    });
+    const botGame = await botRes.json();
+
+    await assert.rejects(() => openWsClient(`${wsBase}/api/games/missing-id/chat-ws`));
+    await assert.rejects(() => openWsClient(`${wsBase}/api/games/${botGame.id}/chat-ws`));
+
+    const hostRes = await fetch(`${ctx.baseUrl}/api/games`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'friend', playerColor: 'w', playerName: 'Alice' }),
+    });
+    const host = await hostRes.json();
+
+    const guestRes = await fetch(`${ctx.baseUrl}/api/games/${host.id}/join`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerName: 'Bob' }),
+    });
+    const guest = await guestRes.json();
+
+    const wsUrl = `${wsBase}/api/games/${host.id}/chat-ws`;
+    const hostWs = await openWsClient(wsUrl);
+    const guestWs = await openWsClient(wsUrl);
+    const specWs = await openWsClient(wsUrl);
+    clients.push(hostWs, guestWs, specWs);
+
+    const hostHist = await hostWs.nextMessage();
+    const guestHist = await guestWs.nextMessage();
+    const specHist = await specWs.nextMessage();
+    assert.equal(hostHist.type, 'history');
+    assert.equal(hostHist.messages.length, 1);
+    assert.equal(guestHist.messages.length, 1);
+    assert.equal(specHist.messages.length, 1);
+
+    hostWs.sendJson({ type: 'auth', playerToken: host.seatToken });
+    const authOk = await hostWs.nextMessage();
+    assert.equal(authOk.type, 'auth_ok');
+
+    // Spectators cannot send chat messages.
+    specWs.sendJson({ type: 'chat', text: 'Let me chat' });
+    const specErr = await specWs.nextMessage();
+    assert.equal(specErr.type, 'error');
+
+    // Empty chat triggers validation error without dropping the authenticated socket.
+    hostWs.sendJson({ type: 'chat', text: '   ' });
+    const valErr = await hostWs.nextMessage();
+    assert.equal(valErr.type, 'error');
+
+    // Valid player chat broadcasts to both players and spectators.
+    hostWs.sendJson({ type: 'chat', text: 'Good luck!' });
+    const [mHost, mGuest, mSpec] = await Promise.all([
+      hostWs.nextMessage(),
+      guestWs.nextMessage(),
+      specWs.nextMessage(),
+    ]);
+    assert.equal(mHost.type, 'chat');
+    assert.equal(mHost.message.senderName, 'Alice');
+    assert.equal(mHost.message.text, 'Good luck!');
+    assert.equal(mGuest.message.text, 'Good luck!');
+    assert.equal(mSpec.message.text, 'Good luck!');
+
+    guestWs.sendJson({ type: 'auth', playerToken: guest.seatToken });
+    await guestWs.nextMessage();
+    guestWs.sendJson({ type: 'chat', text: 'You too!' });
+    const replyHost = await hostWs.nextMessage();
+    assert.equal(replyHost.message.senderName, 'Bob');
+    assert.equal(replyHost.message.text, 'You too!');
+  } finally {
+    for (const c of clients) {
+      c.close();
+    }
+    await ctx.close();
+  }
+}
+
+test('WS /api/games/:id/chat-ws streams history, authenticates players, and enforces spectator read-only', testFriendChatWebSocketServer);

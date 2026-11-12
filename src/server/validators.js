@@ -10,6 +10,7 @@ const VALID_DRAW_ACTIONS = new Set(['offer', 'accept', 'decline']);
 const VALID_REQUEST_ACTIONS = new Set(['request', 'accept', 'decline']);
 const SQUARE_REGEX = /^[a-h][1-8]$/;
 const MAX_PLAYER_NAME_LENGTH = 24;
+const MAX_CHAT_MESSAGE_LENGTH = 200;
 
 /**
  * Error thrown when incoming HTTP request data fails boundary validation.
@@ -194,4 +195,31 @@ export function validateTakebackActionInput(payload) {
  */
 export function validateRematchActionInput(payload) {
   return validateActionInput(payload, VALID_REQUEST_ACTIONS);
+}
+
+/**
+ * Validates and normalizes an incoming friend match chat message payload.
+ *
+ * @param {unknown} payload - Parsed JSON chat frame or request body.
+ * @returns {{ text: string }} Trimmed non-empty chat message text.
+ * @throws {ValidationError} When payload is malformed, empty, or exceeds max length.
+ */
+export function validateChatMessageInput(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new ValidationError('Chat payload must be a JSON object');
+  }
+  const { text } = payload;
+  if (typeof text !== 'string') {
+    throw new ValidationError('Chat message text must be a string');
+  }
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    throw new ValidationError('Chat message cannot be empty');
+  }
+  if (trimmed.length > MAX_CHAT_MESSAGE_LENGTH) {
+    throw new ValidationError(
+      `Chat message must be ${MAX_CHAT_MESSAGE_LENGTH} characters or fewer`
+    );
+  }
+  return { text: trimmed };
 }

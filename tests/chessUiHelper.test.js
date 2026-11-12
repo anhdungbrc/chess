@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import {
   applyOptimisticMove,
   canInteractWithBoard,
+  canSendMatchChat,
   computeCapturedMaterial,
   formatClockMs,
+  resolveChatWsUrl,
   resolveInviteUrl,
   resolveSquareFromPoint,
   resolveViewerColor,
@@ -236,4 +238,27 @@ test('resolveViewerColor resolves bot, friend slot, and spectator color', testRe
 test('resolveInviteUrl constructs clean shareable invite links', testResolveInviteUrl);
 test('canInteractWithBoard gates board input to active turn owner', testCanInteractWithBoard);
 test('applyOptimisticMove updates board state immutably for regular and special moves', testApplyOptimisticMove);
+
+/**
+ * Verifies resolveChatWsUrl builds ws:// or wss:// URLs and canSendMatchChat gates chat input to seated friend players.
+ * Expected: http -> ws, https -> wss, encoded gameId; only friend mode with non-null viewerColor returns true.
+ */
+function testChatUiHelpers() {
+  assert.equal(
+    resolveChatWsUrl({ protocol: 'http:', host: 'localhost:3000' }, 'room-1'),
+    'ws://localhost:3000/api/games/room-1/chat-ws'
+  );
+  assert.equal(
+    resolveChatWsUrl({ protocol: 'https:', host: 'chess.example.com' }, 'room 2'),
+    'wss://chess.example.com/api/games/room%202/chat-ws'
+  );
+
+  assert.equal(canSendMatchChat({ mode: 'friend', status: 'playing' }, 'w'), true);
+  assert.equal(canSendMatchChat({ mode: 'friend', status: 'waiting' }, 'b'), true);
+  assert.equal(canSendMatchChat({ mode: 'friend', status: 'playing' }, null), false);
+  assert.equal(canSendMatchChat({ mode: 'bot', status: 'playing' }, 'w'), false);
+  assert.equal(canSendMatchChat(null, 'w'), false);
+}
+
+test('resolveChatWsUrl and canSendMatchChat handle protocols and spectator gating', testChatUiHelpers);
 

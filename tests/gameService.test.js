@@ -8,6 +8,7 @@ import {
   InvalidGameStateError,
   UnauthorizedActionError,
 } from '../src/service/gameService.js';
+import { validateChatMessageInput, ValidationError } from '../src/server/validators.js';
 
 /**
  * Creates a deterministic stub AI move selector from a fixed list of moves.
@@ -681,5 +682,109 @@ function testFriendDrawTakebackAndRematch() {
   assert.equal(r2Move.game.turn, 'b');
 }
 
+/**
+ * Verifies friend match player chat validation, seat authorization, real-time subscription, and 100-message cap.
+ * Expected: validateChatMessageInput trims/enforces 1..200 chars; seated players can send chat while spectators/bot mode are rejected; history caps at 100 messages.
+ */
+function testFriendPlayerChatAndBounds() {
+  assert.deepEqual(validateChatMessageInput({ text: '  Good luck!  ' }), { text: 'Good luck!' });
+  assert.throws(() => validateChatMessageInput({ text: '   ' }), ValidationError);
+  assert.throws(() => validateChatMessageInput({ text: 123 }), ValidationError);
+  assert.throws(() => validateChatMessageInput({ text: 'a'.repeat(201) }), ValidationError);
+
+  let currentNow = 1000;
+  const service = createGameService({ now: () => ++currentNow });
+  const botGame = service.createGame({ playerColor: 'w', difficulty: 'easy' });
+  assert.throws(
+    () => service.sendChatMessage(botGame.id, undefined, 'Hello bot'),
+    InvalidGameStateError
+  );
+  assert.throws(() => service.listChatMessages(botGame.id), InvalidGameStateError);
+
+  const host = service.createGame({ mode: 'friend', playerColor: 'w', playerName: 'Alice' });
+  const guest = service.joinGame(host.id, { playerName: 'Bob' });
+
+  // Spectators or invalid tokens cannot send chat messages.
+  assert.throws(() => service.sendChatMessage(host.id, undefined, 'Hi'), UnauthorizedActionError);
+  assert.throws(() => service.sendChatMessage(host.id, 'bad-token', 'Hi'), UnauthorizedActionError);
+  assert.throws(() => service.sendChatMessage('missing-id', host.seatToken, 'Hi'), GameNotFoundError);
+
+  const received = [];
+  const unsubscribe = service.subscribeChat(host.id, (msg) => received.push(msg));
+
+  const msg1 = service.sendChatMessage(host.id, host.seatToken, 'glhf!');
+  assert.equal(msg1.kind, 'player');
+  assert.equal(msg1.senderName, 'Alice');
+  assert.equal(msg1.senderSlot, 'p1');
+  assert.equal(msg1.senderColor, 'w');
+  assert.equal(msg1.round, 1);
+  assert.equal(msg1.text, 'glhf!');
+  assert.ok(msg1.id);
+  assert.equal(typeof msg1.timestamp, 'number');
+
+  const msg2 = service.sendChatMessage(host.id, guest.seatToken, 'u2!');
+  assert.equal(msg2.senderName, 'Bob');
+  assert.equal(msg2.senderSlot, 'p2');
+  assert.equal(msg2.senderColor, 'b');
+
+  assert.equal(received.length, 2);
+  assert.equal(received[0].text, 'glhf!');
+  assert.equal(received[1].text, 'u2!');
+
+  unsubscribe();
+  // Send 105 more messages so total player messages exceed 100 and oldest entries are evicted.
+  for (let i = 1; i <= 105; i += 1) {
+    service.sendChatMessage(host.id, host.seatToken, `msg-${i}`);
+  }
+  assert.equal(received.length, 2);
+
+  const history = service.listChatMessages(host.id);
+  assert.equal(history.length, 100);
+  assert.equal(history.at(-1).text, 'msg-105');
+  assert.equal(history[0].text, 'msg-6');
+}
+
+/**
+ * Verifies automatic system chat messages fire on friend lifecycle events and chat history persists across rematch rounds.
+ * Expected: join, draw, game-over, and rematch emit system entries; player + system messages remain after rematch with a round-divider entry.
+ */
+function testFriendSystemChatAndRematchPersistence() {
+  let currentNow = 5000;
+  const service = createGameService({ now: () => (currentNow += 100) });
+
+  const host = service.createGame({ mode: 'friend', playerColor: 'w', playerName: 'Alice' });
+  const liveEvents = [];
+  service.subscribeChat(host.id, (entry) => liveEvents.push(entry));
+
+  const guest = service.joinGame(host.id, { playerName: 'Bob' });
+  service.sendChatMessage(host.id, host.seatToken, 'Have fun!');
+
+  service.applyPlayerMove(host.id, { from: 'e2', to: 'e4' }, host.seatToken);
+  service.handleDrawAction(host.id, guest.seatToken, 'offer');
+  service.handleDrawAction(host.id, host.seatToken, 'decline');
+  service.handleDrawAction(host.id, guest.seatToken, 'offer');
+  service.handleDrawAction(host.id, host.seatToken, 'accept');
+
+  service.handleRematchAction(host.id, host.seatToken, 'request');
+  service.handleRematchAction(host.id, guest.seatToken, 'accept');
+
+  const messages = service.listChatMessages(host.id);
+  assert.equal(liveEvents.length, messages.length);
+  assert.ok(messages.some((m) => m.kind === 'system' && m.round === 1 && /Alice.*Bob/i.test(m.text)));
+  assert.ok(messages.some((m) => m.kind === 'player' && m.text === 'Have fun!' && m.round === 1));
+  assert.ok(messages.some((m) => m.kind === 'system' && /offered a draw/i.test(m.text)));
+  assert.ok(messages.some((m) => m.kind === 'system' && /declined the draw/i.test(m.text)));
+  assert.ok(messages.some((m) => m.kind === 'system' && /accepted the draw/i.test(m.text)));
+  assert.ok(messages.some((m) => m.kind === 'system' && /requested a rematch/i.test(m.text)));
+
+  const round2Divider = messages.find((m) => m.kind === 'system' && m.isRoundDivider && m.round === 2);
+  assert.ok(round2Divider);
+  assert.match(round2Divider.text, /Round 2/i);
+  // Prior round player chat remains preserved after rematch.
+  assert.equal(messages.filter((m) => m.kind === 'player').length, 1);
+}
+
 test('friend game enforces seat-authenticated moves, clocks, resign, and blocks unilateral undo', testFriendMovesClocksAndResign);
 test('friend game supports draw offer/accept/decline, takeback 1-2 plies, and color-swapping rematch', testFriendDrawTakebackAndRematch);
+test('friend game supports seat-authenticated player chat, subscriptions, and 100-message cap', testFriendPlayerChatAndBounds);
+test('friend game emits system chat messages and preserves chat history across rematches', testFriendSystemChatAndRematchPersistence);
