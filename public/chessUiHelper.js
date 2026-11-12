@@ -184,6 +184,50 @@ export function canSendMatchChat(game, viewerColor) {
 }
 
 /**
+ * Filters a slot-indexed avatar bubble map to retain only entries whose expiry is still in the future.
+ *
+ * @param {Record<string, { text: string, expiresAt: number }> | null | undefined} bubblesBySlot - Map keyed by player slot ('p1' | 'p2').
+ * @param {number} nowMs - Current epoch timestamp in milliseconds.
+ * @returns {Record<string, { text: string, expiresAt: number }>} Active non-expired bubble map.
+ */
+export function resolveActiveAvatarBubbles(bubblesBySlot, nowMs) {
+  const active = {};
+  if (!bubblesBySlot || typeof bubblesBySlot !== 'object') {
+    return active;
+  }
+  for (const [slot, entry] of Object.entries(bubblesBySlot)) {
+    if (entry && typeof entry.text === 'string' && entry.text.length > 0 && entry.expiresAt > nowMs) {
+      active[slot] = { text: entry.text, expiresAt: entry.expiresAt };
+    }
+  }
+  return active;
+}
+
+/**
+ * Resolves the active speech bubble text for a given board side ('w' or 'b') in a friend match.
+ *
+ * @param {object | null} game - Current game snapshot.
+ * @param {'w' | 'b'} sideColor - Piece color displayed on the target player card.
+ * @param {Record<string, { text: string, expiresAt: number }> | null | undefined} bubblesBySlot - Active bubbles keyed by player slot.
+ * @param {number} nowMs - Current epoch timestamp in milliseconds.
+ * @returns {{ text: string } | null} Active bubble payload for that side, or null.
+ */
+export function resolveAvatarChatBubble(game, sideColor, bubblesBySlot, nowMs) {
+  if (!game || game.mode !== 'friend') {
+    return null;
+  }
+  const slot = game.players?.[sideColor]?.slot;
+  if (!slot || !bubblesBySlot) {
+    return null;
+  }
+  const entry = bubblesBySlot[slot];
+  if (!entry || typeof entry.text !== 'string' || entry.text.length === 0 || entry.expiresAt <= nowMs) {
+    return null;
+  }
+  return { text: entry.text };
+}
+
+/**
  * Determines whether the current viewer can select and move pieces on the board.
  *
  * @param {object | null} game - Current game snapshot.

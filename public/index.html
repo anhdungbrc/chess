@@ -45,7 +45,10 @@
       <main class="board-stage" aria-label="Chess board stage">
         <div id="top-player-card" class="player-card">
           <div class="player-identity">
-            <div id="top-avatar" class="player-avatar"></div>
+            <div class="player-avatar-wrap">
+              <div id="top-avatar" class="player-avatar"></div>
+              <div id="top-avatar-bubble" class="avatar-chat-bubble is-top" role="status" aria-live="polite" hidden></div>
+            </div>
             <div class="player-meta">
               <div class="player-name-row">
                 <span id="top-name" class="player-name">Opponent</span>
@@ -141,7 +144,10 @@
 
         <div id="bottom-player-card" class="player-card">
           <div class="player-identity">
-            <div id="bottom-avatar" class="player-avatar"></div>
+            <div class="player-avatar-wrap">
+              <div id="bottom-avatar" class="player-avatar"></div>
+              <div id="bottom-avatar-bubble" class="avatar-chat-bubble is-bottom" role="status" aria-live="polite" hidden></div>
+            </div>
             <div class="player-meta">
               <div class="player-name-row">
                 <span id="bottom-name" class="player-name">You</span>

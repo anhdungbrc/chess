@@ -7,6 +7,8 @@ import {
   canSendMatchChat,
   computeCapturedMaterial,
   formatClockMs,
+  resolveActiveAvatarBubbles,
+  resolveAvatarChatBubble,
   resolveChatWsUrl,
   resolveInviteUrl,
   resolveSquareFromPoint,
@@ -20,6 +22,7 @@ import {
 } from './chessAssets.js';
 
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+const AVATAR_BUBBLE_DURATION_MS = 4500;
 
 const PROMOTION_LABELS = {
   q: 'Queen',
@@ -91,6 +94,8 @@ const state = {
   chatReconnectTimer: null,
   chatMessages: [],
   unreadChatCount: 0,
+  avatarBubbles: {},
+  avatarBubbleTimers: {},
   selectedSquare: null,
   isPendingRequest: false,
   pendingPromotion: null,
@@ -119,12 +124,14 @@ const elements = {
   navSoundBtn: document.getElementById('nav-sound-btn'),
   soundLabel: document.getElementById('sound-label'),
   topAvatar: document.getElementById('top-avatar'),
+  topAvatarBubble: document.getElementById('top-avatar-bubble'),
   topName: document.getElementById('top-name'),
   topRating: document.getElementById('top-rating'),
   topCaptures: document.getElementById('top-captures'),
   topAdvantage: document.getElementById('top-advantage'),
   topClock: document.getElementById('top-clock'),
   bottomAvatar: document.getElementById('bottom-avatar'),
+  bottomAvatarBubble: document.getElementById('bottom-avatar-bubble'),
   bottomName: document.getElementById('bottom-name'),
   bottomRating: document.getElementById('bottom-rating'),
   bottomCaptures: document.getElementById('bottom-captures'),
@@ -643,7 +650,36 @@ function renderPlayerCards(view) {
     elements.bottomAdvantage
   );
 
+  renderAvatarBubbles();
   updateClockElements();
+}
+
+/**
+ * Renders active speech-bubble chat overlays above/below the top and bottom player avatars.
+ *
+ * @returns {void}
+ */
+function renderAvatarBubbles() {
+  const { game } = state;
+  const nowMs = Date.now();
+  state.avatarBubbles = resolveActiveAvatarBubbles(state.avatarBubbles, nowMs);
+
+  const topColor = state.isFlipped ? 'w' : 'b';
+  const bottomColor = state.isFlipped ? 'b' : 'w';
+
+  const applyBubbleNode = (node, sideColor) => {
+    const active = resolveAvatarChatBubble(game, sideColor, state.avatarBubbles, nowMs);
+    if (!active) {
+      node.hidden = true;
+      node.textContent = '';
+      return;
+    }
+    node.textContent = active.text;
+    node.hidden = false;
+  };
+
+  applyBubbleNode(elements.topAvatarBubble, topColor);
+  applyBubbleNode(elements.bottomAvatarBubble, bottomColor);
 }
 
 /**
@@ -1334,6 +1370,8 @@ function renderApp() {
     elements.playSubtabs.hidden = true;
     elements.movesSection.hidden = false;
     elements.chatSection.hidden = true;
+    elements.topAvatarBubble.hidden = true;
+    elements.bottomAvatarBubble.hidden = true;
     return;
   }
 
@@ -2165,6 +2203,45 @@ function authenticateChatSocket() {
 }
 
 /**
+ * Clears all active avatar speech bubbles and their auto-hide timers when resetting rooms.
+ *
+ * @returns {void}
+ */
+function clearAvatarBubbles() {
+  for (const timer of Object.values(state.avatarBubbleTimers)) {
+    clearTimeout(timer);
+  }
+  state.avatarBubbleTimers = {};
+  state.avatarBubbles = {};
+}
+
+/**
+ * Displays a temporary speech bubble on the sender's avatar for live player chat messages.
+ *
+ * @param {string | undefined} senderSlot - Seat slot identifier ('p1' or 'p2').
+ * @param {string} text - Chat text to display.
+ * @returns {void}
+ */
+function showAvatarBubble(senderSlot, text) {
+  if (!senderSlot || typeof text !== 'string' || !text.trim()) {
+    return;
+  }
+  if (state.avatarBubbleTimers[senderSlot]) {
+    clearTimeout(state.avatarBubbleTimers[senderSlot]);
+  }
+  state.avatarBubbles[senderSlot] = {
+    text,
+    expiresAt: Date.now() + AVATAR_BUBBLE_DURATION_MS,
+  };
+  state.avatarBubbleTimers[senderSlot] = setTimeout(() => {
+    delete state.avatarBubbleTimers[senderSlot];
+    state.avatarBubbles = resolveActiveAvatarBubbles(state.avatarBubbles, Date.now());
+    renderAvatarBubbles();
+  }, AVATAR_BUBBLE_DURATION_MS + 20);
+  renderAvatarBubbles();
+}
+
+/**
  * Appends a single incoming WebSocket chat message while avoiding duplicates and updating unread badges.
  *
  * @param {object} message - Server chat entry payload.
@@ -2187,6 +2264,9 @@ function handleIncomingChatMessage(message) {
     message.senderSlot !== state.viewerSlot
   ) {
     state.unreadChatCount += 1;
+  }
+  if (message.kind === 'player' && message.senderSlot) {
+    showAvatarBubble(message.senderSlot, message.text);
   }
   renderChatPanel(state.game, getViewerColor());
 }
@@ -2370,6 +2450,7 @@ async function startNewGame(override = {}) {
     state.analysisKey = null;
     disconnectGameEvents();
     disconnectChatSocket();
+    clearAvatarBubbles();
     state.chatMessages = [];
     state.unreadChatCount = 0;
     state.activePlaySubtab = 'moves';

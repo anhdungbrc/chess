@@ -6,6 +6,8 @@ import {
   canSendMatchChat,
   computeCapturedMaterial,
   formatClockMs,
+  resolveActiveAvatarBubbles,
+  resolveAvatarChatBubble,
   resolveChatWsUrl,
   resolveInviteUrl,
   resolveSquareFromPoint,
@@ -261,4 +263,38 @@ function testChatUiHelpers() {
 }
 
 test('resolveChatWsUrl and canSendMatchChat handle protocols and spectator gating', testChatUiHelpers);
+
+/**
+ * Verifies resolveActiveAvatarBubbles and resolveAvatarChatBubble map live bubbles by slot across color swaps and expire cleanly.
+ * Expected: active bubbles resolve to the seat holding matching slot; expired bubbles, missing seats, and bot mode return null.
+ */
+function testAvatarChatBubbleHelpers() {
+  const bubbles = {
+    p1: { text: 'Good luck!', expiresAt: 5500 },
+    p2: { text: 'Thanks!', expiresAt: 4000 },
+  };
+
+  // At t=4500, p2 has expired while p1 remains active.
+  const activeAt4500 = resolveActiveAvatarBubbles(bubbles, 4500);
+  assert.deepEqual(Object.keys(activeAt4500), ['p1']);
+  assert.equal(activeAt4500.p1.text, 'Good luck!');
+
+  const round2FriendGame = {
+    mode: 'friend',
+    players: {
+      w: { name: 'Bob', joined: true, slot: 'p2' },
+      b: { name: 'Alice', joined: true, slot: 'p1' },
+    },
+  };
+
+  assert.deepEqual(resolveAvatarChatBubble(round2FriendGame, 'b', bubbles, 4500), {
+    text: 'Good luck!',
+  });
+  assert.equal(resolveAvatarChatBubble(round2FriendGame, 'w', bubbles, 4500), null);
+  assert.equal(resolveAvatarChatBubble(round2FriendGame, 'b', bubbles, 5500), null);
+  assert.equal(resolveAvatarChatBubble({ mode: 'bot' }, 'w', bubbles, 3000), null);
+  assert.equal(resolveAvatarChatBubble(null, 'w', bubbles, 3000), null);
+}
+
+test('resolveActiveAvatarBubbles and resolveAvatarChatBubble track slot bubbles and expiry', testAvatarChatBubbleHelpers);
 
