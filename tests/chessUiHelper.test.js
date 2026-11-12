@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  applyOptimisticMove,
   canInteractWithBoard,
   computeCapturedMaterial,
   formatClockMs,
@@ -129,10 +130,110 @@ function testCanInteractWithBoard() {
   assert.equal(canInteractWithBoard({ status: 'resigned', turn: 'w' }, 'w', false), false);
 }
 
+/**
+ * Builds an empty 8x8 board matrix with optional piece placements for helper tests.
+ *
+ * @param {Array<{ row: number, col: number, square: string, type: string, color: 'w' | 'b' }>} pieces - Pieces to place.
+ * @returns {Array<Array<{ square: string, type: string, color: 'w' | 'b' } | null>>} 8x8 board grid.
+ */
+function buildTestBoard(pieces) {
+  const board = Array.from({ length: 8 }, () => Array(8).fill(null));
+  for (const piece of pieces) {
+    board[piece.row][piece.col] = {
+      square: piece.square,
+      type: piece.type,
+      color: piece.color,
+    };
+  }
+  return board;
+}
+
+/**
+ * Verifies applyOptimisticMove updates board, turn, clock, history, castling, en passant, and promotion immutably.
+ * Expected: standard moves, O-O, en passant, and promotion update target squares cleanly without mutating the source snapshot.
+ */
+function testApplyOptimisticMove() {
+  const baseGame = {
+    id: 'g1',
+    status: 'playing',
+    turn: 'w',
+    inCheck: true,
+    legalMoves: [{ from: 'e2', to: 'e4', san: 'e4' }],
+    history: [],
+    clock: {
+      isRunning: true,
+      activeColor: 'w',
+      remainingMs: { w: 60000, b: 60000 },
+    },
+    board: buildTestBoard([
+      { row: 6, col: 4, square: 'e2', type: 'p', color: 'w' },
+      { row: 7, col: 4, square: 'e1', type: 'k', color: 'w' },
+      { row: 7, col: 7, square: 'h1', type: 'r', color: 'w' },
+    ]),
+  };
+
+  const afterPush = applyOptimisticMove(baseGame, { from: 'e2', to: 'e4' });
+  assert.equal(afterPush.isOptimistic, true);
+  assert.equal(afterPush.turn, 'b');
+  assert.equal(afterPush.inCheck, false);
+  assert.deepEqual(afterPush.legalMoves, []);
+  assert.deepEqual(afterPush.lastMove, { from: 'e2', to: 'e4' });
+  assert.equal(afterPush.clock.activeColor, 'b');
+  assert.equal(afterPush.board[6][4], null);
+  assert.deepEqual(afterPush.board[4][4], { square: 'e4', type: 'p', color: 'w' });
+  assert.equal(afterPush.history.length, 1);
+  assert.equal(afterPush.history[0].san, 'e4');
+  // Source board and legalMoves must remain untouched for error rollback.
+  assert.equal(baseGame.turn, 'w');
+  assert.equal(baseGame.board[6][4].type, 'p');
+  assert.equal(baseGame.legalMoves.length, 1);
+
+  // Kingside castling moves both King (e1->g1) and Rook (h1->f1).
+  const afterCastle = applyOptimisticMove(baseGame, { from: 'e1', to: 'g1' });
+  assert.equal(afterCastle.board[7][4], null);
+  assert.equal(afterCastle.board[7][7], null);
+  assert.deepEqual(afterCastle.board[7][6], { square: 'g1', type: 'k', color: 'w' });
+  assert.deepEqual(afterCastle.board[7][5], { square: 'f1', type: 'r', color: 'w' });
+  assert.equal(afterCastle.history[0].san, 'O-O');
+
+  // Diagonal pawn move onto an empty square clears the en-passant victim on the origin rank.
+  const enPassantGame = {
+    status: 'playing',
+    turn: 'w',
+    legalMoves: [],
+    history: [],
+    board: buildTestBoard([
+      { row: 3, col: 4, square: 'e5', type: 'p', color: 'w' },
+      { row: 3, col: 3, square: 'd5', type: 'p', color: 'b' },
+    ]),
+  };
+  const afterEnPassant = applyOptimisticMove(enPassantGame, { from: 'e5', to: 'd6' });
+  assert.equal(afterEnPassant.board[3][4], null);
+  assert.equal(afterEnPassant.board[3][3], null);
+  assert.deepEqual(afterEnPassant.board[2][3], { square: 'd6', type: 'p', color: 'w' });
+  assert.equal(afterEnPassant.history[0].captured, 'p');
+
+  // Pawn promotion replaces the piece type on the destination square.
+  const promoGame = {
+    status: 'playing',
+    turn: 'w',
+    legalMoves: [],
+    history: [],
+    board: buildTestBoard([{ row: 1, col: 0, square: 'a7', type: 'p', color: 'w' }]),
+  };
+  const afterPromo = applyOptimisticMove(promoGame, { from: 'a7', to: 'a8', promotion: 'q' });
+  assert.deepEqual(afterPromo.board[0][0], { square: 'a8', type: 'q', color: 'w' });
+  assert.equal(afterPromo.history[0].promotion, 'q');
+
+  // Unknown origin piece leaves snapshot untouched.
+  assert.equal(applyOptimisticMove(baseGame, { from: 'a3', to: 'a4' }), baseGame);
+}
+
 test('formatClockMs formats standard and low-time clocks accurately', testFormatClockMs);
 test('computeCapturedMaterial tracks sorted captures, promotions, and ply slicing', testComputeCapturedMaterial);
 test('resolveSquareFromPoint maps board coordinates in both orientations', testResolveSquareFromPoint);
 test('resolveViewerColor resolves bot, friend slot, and spectator color', testResolveViewerColor);
 test('resolveInviteUrl constructs clean shareable invite links', testResolveInviteUrl);
 test('canInteractWithBoard gates board input to active turn owner', testCanInteractWithBoard);
+test('applyOptimisticMove updates board state immutably for regular and special moves', testApplyOptimisticMove);
 

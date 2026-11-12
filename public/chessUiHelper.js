@@ -174,3 +174,126 @@ export function canInteractWithBoard(game, viewerColor, isReviewing) {
   return game.status === 'playing' && game.turn === viewerColor;
 }
 
+/**
+ * Converts an algebraic square ('a1'..'h8') to 8x8 board array indices.
+ *
+ * @param {string} square - Algebraic chess square.
+ * @returns {{ row: number, col: number } | null} Zero-based indices or null if malformed.
+ */
+function squareToIndices(square) {
+  if (typeof square !== 'string' || square.length !== 2) {
+    return null;
+  }
+  const col = FILES.indexOf(square[0]);
+  const rank = Number(square[1]);
+  if (col < 0 || !Number.isInteger(rank) || rank < 1 || rank > 8) {
+    return null;
+  }
+  return { row: 8 - rank, col };
+}
+
+/**
+ * Builds a client-side optimistic snapshot immediately after a player move so UI renders before server round-trip completes.
+ *
+ * @param {object | null} game - Current live game snapshot.
+ * @param {{ from: string, to: string, promotion?: string }} move - Legal move submitted by the player.
+ * @returns {object | null} Cloned optimistic snapshot flagged with isOptimistic: true, or original game if invalid.
+ */
+export function applyOptimisticMove(game, { from, to, promotion } = {}) {
+  const fromPos = squareToIndices(from);
+  const toPos = squareToIndices(to);
+  if (!game?.board || !fromPos || !toPos) {
+    return game;
+  }
+
+  const movingPiece = game.board[fromPos.row]?.[fromPos.col];
+  if (!movingPiece) {
+    return game;
+  }
+
+  const nextBoard = game.board.map((rank) =>
+    rank.map((cell) => (cell ? { ...cell } : null))
+  );
+
+  let capturedType = nextBoard[toPos.row][toPos.col]?.type ?? null;
+  const isCastling = movingPiece.type === 'k' && Math.abs(toPos.col - fromPos.col) === 2;
+  const isEnPassant =
+    movingPiece.type === 'p' &&
+    fromPos.col !== toPos.col &&
+    !nextBoard[toPos.row][toPos.col];
+
+  // Clear the en-passant victim behind the target square before moving the pawn.
+  if (isEnPassant) {
+    capturedType = nextBoard[fromPos.row][toPos.col]?.type ?? 'p';
+    nextBoard[fromPos.row][toPos.col] = null;
+  }
+
+  // Shift the corresponding rook alongside a two-square king castling move.
+  if (isCastling) {
+    const isKingside = toPos.col > fromPos.col;
+    const rookFromCol = isKingside ? 7 : 0;
+    const rookToCol = isKingside ? 5 : 3;
+    const rookPiece = nextBoard[fromPos.row][rookFromCol];
+    if (rookPiece) {
+      nextBoard[fromPos.row][rookFromCol] = null;
+      nextBoard[fromPos.row][rookToCol] = {
+        ...rookPiece,
+        square: `${FILES[rookToCol]}${8 - fromPos.row}`,
+      };
+    }
+  }
+
+  nextBoard[fromPos.row][fromPos.col] = null;
+  nextBoard[toPos.row][toPos.col] = {
+    square: to,
+    type: promotion || movingPiece.type,
+    color: movingPiece.color,
+  };
+
+  const nextTurn = movingPiece.color === 'w' ? 'b' : 'w';
+  const matchedLegal = game.legalMoves?.find(
+    (entry) =>
+      entry.from === from &&
+      entry.to === to &&
+      (!promotion || entry.promotion === promotion)
+  );
+  const optimisticSan =
+    matchedLegal?.san ??
+    (isCastling ? (toPos.col > fromPos.col ? 'O-O' : 'O-O-O') : to);
+
+  const nextHistory = [
+    ...(game.history ?? []),
+    {
+      color: movingPiece.color,
+      from,
+      to,
+      san: optimisticSan,
+      ...(capturedType ? { captured: capturedType } : {}),
+      ...(promotion ? { promotion } : {}),
+    },
+  ];
+
+  // Advance the displayed turn clock locally until the authoritative server snapshot arrives.
+  const nextClock = game.clock
+    ? {
+        ...game.clock,
+        isRunning: true,
+        activeColor: nextTurn,
+      }
+    : game.clock;
+
+  return {
+    ...game,
+    isOptimistic: true,
+    board: nextBoard,
+    turn: nextTurn,
+    // Server computes exact check/checkmate status; keep board unblocked while in flight.
+    inCheck: false,
+    // Prevent a second move until the authoritative snapshot restores legalMoves.
+    legalMoves: [],
+    lastMove: { from, to },
+    history: nextHistory,
+    clock: nextClock,
+  };
+}
+

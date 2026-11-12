@@ -2,6 +2,7 @@ import { formatEvalScore, uciToMoveSquares } from './analysisHelper.js';
 import { createStockfishAnalyzer } from './stockfishClient.js';
 import { formatReviewMoveLabel, resolveReviewViewState } from './reviewHelper.js';
 import {
+  applyOptimisticMove,
   canInteractWithBoard,
   computeCapturedMaterial,
   formatClockMs,
@@ -1527,7 +1528,7 @@ async function runPendingAction(task) {
 }
 
 /**
- * Sends a move to the backend API and updates game state with the AI reply.
+ * Sends a move to the backend API after rendering an immediate optimistic board update.
  *
  * @param {string} from - Origin square.
  * @param {string} to - Target square.
@@ -1535,26 +1536,66 @@ async function runPendingAction(task) {
  * @returns {Promise<void>}
  */
 async function submitMove(from, to, promotion) {
-  if (!state.game) {
+  if (!state.game || state.isPendingRequest) {
     return;
   }
 
   const prevGame = state.game;
-  await runPendingAction(async () => {
-    const result = await requestJson(`/api/games/${state.game.id}/move`, {
-      method: 'POST',
-      body: JSON.stringify({
-        from,
-        to,
-        ...(promotion ? { promotion } : {}),
-      }),
-    });
-    state.game = result.game;
+  const optimisticGame = applyOptimisticMove(prevGame, { from, to, promotion });
+  const hasOptimisticUpdate = optimisticGame !== prevGame;
+
+  if (hasOptimisticUpdate) {
+    // Render the player's move and cue audio immediately so remote round-trips feel instant.
+    state.game = optimisticGame;
     state.reviewPly = null;
     state.markedSquares.clear();
     state.arrows.clear();
-    syncLocalClockBaseline(result.game);
-    playSoundForTransition(prevGame, result.game);
+    syncLocalClockBaseline(optimisticGame);
+    playSoundForTransition(prevGame, optimisticGame);
+  }
+
+  await runPendingAction(async () => {
+    try {
+      const result = await requestJson(`/api/games/${prevGame.id}/move`, {
+        method: 'POST',
+        body: JSON.stringify({
+          from,
+          to,
+          ...(promotion ? { promotion } : {}),
+        }),
+      });
+      const currentGame = state.game;
+      // Do not overwrite a newer friend-mode SSE snapshot if the opponent already replied before HTTP returned.
+      if (
+        currentGame &&
+        !currentGame.isOptimistic &&
+        currentGame.id === result.game.id &&
+        currentGame.history.length > result.game.history.length
+      ) {
+        return;
+      }
+
+      const soundBase = hasOptimisticUpdate ? currentGame : prevGame;
+      state.game = result.game;
+      state.reviewPly = null;
+      state.markedSquares.clear();
+      state.arrows.clear();
+      syncLocalClockBaseline(result.game);
+      if (
+        !hasOptimisticUpdate ||
+        result.game.history.length > (soundBase?.history.length ?? 0) ||
+        result.game.status !== soundBase?.status
+      ) {
+        playSoundForTransition(soundBase, result.game);
+      }
+    } catch (err) {
+      if (hasOptimisticUpdate && state.game === optimisticGame) {
+        // Restore pre-move state on rejection or network failure so illegal moves do not linger.
+        state.game = prevGame;
+        syncLocalClockBaseline(prevGame);
+      }
+      throw err;
+    }
   });
 }
 
@@ -1986,7 +2027,9 @@ function applyIncomingSseGame(incoming) {
     return;
   }
 
+  // Treat optimistic states as provisional so the authoritative SSE snapshot replaces them once synced.
   const isUnchanged =
+    !prevGame.isOptimistic &&
     prevGame.history.length === incoming.history.length &&
     prevGame.status === incoming.status &&
     prevGame.turn === incoming.turn &&
