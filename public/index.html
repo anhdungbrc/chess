@@ -60,7 +60,12 @@
           <div id="top-clock" class="player-clock" aria-label="Top player clock" hidden></div>
         </div>
 
-        <div class="board-wrapper">
+        <div class="board-with-eval">
+          <div id="eval-bar" class="eval-bar" aria-label="Position evaluation" hidden>
+            <div id="eval-bar-fill" class="eval-bar-fill"></div>
+            <span id="eval-bar-score" class="eval-bar-score">0.0</span>
+          </div>
+          <div class="board-wrapper">
           <div
             id="chess-board"
             class="chess-board"
@@ -119,6 +124,9 @@
                 <div id="game-over-bot-avatar" class="versus-avatar"></div>
               </div>
               <div class="game-over-actions">
+                <button id="modal-review-btn" type="button" class="btn btn-accent btn-full">
+                  Game Review
+                </button>
                 <button id="modal-rematch-btn" type="button" class="btn btn-green">
                   Rematch
                 </button>
@@ -127,6 +135,7 @@
                 </button>
               </div>
             </div>
+          </div>
           </div>
         </div>
 
@@ -236,6 +245,43 @@
             </div>
           </div>
 
+          <div id="analysis-panel" class="analysis-panel" hidden>
+            <div class="analysis-header">
+              <span class="analysis-title">Game Review</span>
+              <span id="analysis-progress" class="analysis-progress" hidden></span>
+              <button
+                id="analysis-cancel-btn"
+                type="button"
+                class="btn btn-dark btn-compact"
+                hidden
+              >
+                Cancel
+              </button>
+            </div>
+            <div id="analysis-accuracy-row" class="accuracy-cards" hidden>
+              <div class="accuracy-card accuracy-white">
+                <span class="accuracy-side">White</span>
+                <span id="analysis-white-acc" class="accuracy-value">--</span>
+              </div>
+              <div class="accuracy-card accuracy-black">
+                <span class="accuracy-side">Black</span>
+                <span id="analysis-black-acc" class="accuracy-value">--</span>
+              </div>
+            </div>
+            <div id="eval-graph-wrap" class="eval-graph-wrap" hidden>
+              <svg
+                id="eval-graph"
+                class="eval-graph"
+                viewBox="0 0 320 68"
+                preserveAspectRatio="none"
+                role="img"
+                aria-label="Evaluation graph across moves"
+              ></svg>
+            </div>
+            <div id="analysis-counts" class="analysis-counts" hidden></div>
+            <p id="analysis-move-note" class="analysis-move-note" hidden></p>
+          </div>
+
           <div class="moves-section">
             <div class="moves-toolbar">
               <span class="moves-label">Moves</span>
@@ -286,6 +332,9 @@
           </div>
 
           <div class="match-actions">
+            <button id="review-analyze-btn" type="button" class="btn btn-accent btn-full" hidden>
+              Game Review
+            </button>
             <button id="flip-btn" type="button" class="btn btn-dark" title="Flip board">
               Flip
             </button>

@@ -13,8 +13,9 @@ const DEFAULT_PORT = 3000;
 export function startServer() {
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
   const publicDir = path.resolve(currentDir, '..', 'public');
+  const stockfishDir = path.resolve(currentDir, '..', 'node_modules', 'stockfish', 'bin');
   const gameService = createGameService();
-  const server = createHttpServer({ gameService, publicDir });
+  const server = createHttpServer({ gameService, publicDir, stockfishDir });
   const port = Number(process.env.PORT ?? DEFAULT_PORT);
 
   server.listen(port, () => {

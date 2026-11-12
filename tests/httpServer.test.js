@@ -14,6 +14,14 @@ const REAL_PUBLIC_DIR = path.resolve(
   'public'
 );
 
+const REAL_STOCKFISH_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'node_modules',
+  'stockfish',
+  'bin'
+);
+
 /**
  * Starts an ephemeral HTTP server for integration testing and returns its base URL and cleanup helper.
  *
@@ -30,7 +38,11 @@ async function startTestServer(options = {}) {
       chooseMove: () => ({ from: 'e7', to: 'e5' }),
     });
 
-  const server = createHttpServer({ gameService, publicDir });
+  const server = createHttpServer({
+    gameService,
+    publicDir,
+    ...(options.stockfishDir !== undefined ? { stockfishDir: options.stockfishDir } : {}),
+  });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
 
@@ -524,6 +536,11 @@ async function testRealPublicChessComAssetsServed() {
     assert.match(html, /id="invite-link-box"/);
     assert.match(html, /id="join-match-box"/);
     assert.match(html, /id="draw-btn"/);
+    assert.match(html, /id="eval-bar"/);
+    assert.match(html, /id="modal-review-btn"/);
+    assert.match(html, /id="review-analyze-btn"/);
+    assert.match(html, /id="analysis-panel"/);
+    assert.match(html, /id="eval-graph"/);
 
     const assetsRes = await fetch(`${ctx.baseUrl}/chessAssets.js`);
     assert.equal(assetsRes.status, 200);
@@ -532,6 +549,14 @@ async function testRealPublicChessComAssetsServed() {
     const helperRes = await fetch(`${ctx.baseUrl}/chessUiHelper.js`);
     assert.equal(helperRes.status, 200);
     assert.match(helperRes.headers.get('content-type') ?? '', /javascript/);
+
+    const analysisHelperRes = await fetch(`${ctx.baseUrl}/analysisHelper.js`);
+    assert.equal(analysisHelperRes.status, 200);
+    assert.match(analysisHelperRes.headers.get('content-type') ?? '', /javascript/);
+
+    const stockfishClientRes = await fetch(`${ctx.baseUrl}/stockfishClient.js`);
+    assert.equal(stockfishClientRes.status, 200);
+    assert.match(stockfishClientRes.headers.get('content-type') ?? '', /javascript/);
   } finally {
     await ctx.close();
   }
@@ -991,3 +1016,75 @@ async function testFriendSseRealtimeUpdates() {
 
 test('friend mode draw, takeback, and rematch endpoints handle agreements and errors', testFriendDrawTakebackAndRematchEndpoints);
 test('GET /api/games/:id/events streams real-time SSE snapshots and handles 404/cleanup', testFriendSseRealtimeUpdates);
+
+/**
+ * Verifies /api/meta advertises the Stockfish lite-single script URL, /vendor/stockfish/ serves JS/WASM with correct MIME types, and blocks traversal.
+ * Expected: meta exposes analysisEngine.scriptUrl; JS returns javascript MIME; WASM returns application/wasm; traversal attempts return 403 or 404.
+ */
+async function testStockfishVendorServingAndMeta() {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chess-stockfish-'));
+  const stockfishDir = path.join(rootDir, 'bin');
+  fs.mkdirSync(stockfishDir);
+  fs.writeFileSync(path.join(stockfishDir, 'stockfish-19-lite-single.js'), '// mock worker');
+  fs.writeFileSync(path.join(stockfishDir, 'stockfish-19-lite-single.wasm'), 'wasm-bytes');
+  fs.writeFileSync(path.join(rootDir, 'secret.txt'), 'TOP_SECRET');
+
+  const ctx = await startTestServer({ stockfishDir });
+  try {
+    const metaRes = await fetch(`${ctx.baseUrl}/api/meta`);
+    assert.equal(metaRes.status, 200);
+    const meta = await metaRes.json();
+    assert.equal(meta.analysisEngine?.scriptUrl, '/vendor/stockfish/stockfish-19-lite-single.js');
+
+    const jsRes = await fetch(`${ctx.baseUrl}${meta.analysisEngine.scriptUrl}`);
+    assert.equal(jsRes.status, 200);
+    assert.match(jsRes.headers.get('content-type') ?? '', /javascript/);
+
+    const wasmRes = await fetch(`${ctx.baseUrl}/vendor/stockfish/stockfish-19-lite-single.wasm`);
+    assert.equal(wasmRes.status, 200);
+    assert.match(wasmRes.headers.get('content-type') ?? '', /application\/wasm/);
+
+    const encodedTraversal = await rawHttpGet(ctx.baseUrl, '/vendor/stockfish/%2e%2e/secret.txt');
+    assert.ok(encodedTraversal.statusCode === 403 || encodedTraversal.statusCode === 404);
+    assert.doesNotMatch(encodedTraversal.body, /TOP_SECRET/);
+  } finally {
+    await ctx.close();
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+test('serves Stockfish vendor JS/WASM assets safely and advertises scriptUrl in /api/meta', testStockfishVendorServingAndMeta);
+
+/**
+ * Verifies the real installed stockfish npm package assets in node_modules/stockfish/bin are served cleanly over HTTP.
+ * Expected: /api/meta returns a non-null lite-single scriptUrl; fetching the JS and matching .wasm returns 200 with valid MIME types.
+ */
+async function testRealInstalledStockfishAssetsServed() {
+  const ctx = await startTestServer({
+    publicDir: REAL_PUBLIC_DIR,
+    stockfishDir: REAL_STOCKFISH_DIR,
+  });
+  try {
+    const metaRes = await fetch(`${ctx.baseUrl}/api/meta`);
+    assert.equal(metaRes.status, 200);
+    const meta = await metaRes.json();
+    const scriptUrl = meta.analysisEngine?.scriptUrl;
+    assert.match(scriptUrl ?? '', /^\/vendor\/stockfish\/stockfish-.*-lite-single\.js$/);
+
+    const jsRes = await fetch(`${ctx.baseUrl}${scriptUrl}`);
+    assert.equal(jsRes.status, 200);
+    assert.match(jsRes.headers.get('content-type') ?? '', /javascript/);
+
+    const wasmUrl = scriptUrl.replace(/\.js$/, '.wasm');
+    const wasmRes = await fetch(`${ctx.baseUrl}${wasmUrl}`);
+    assert.equal(wasmRes.status, 200);
+    assert.match(wasmRes.headers.get('content-type') ?? '', /application\/wasm/);
+    const wasmBytes = new Uint8Array(await wasmRes.arrayBuffer());
+    // WebAssembly binary magic header: \0asm (0x00 0x61 0x73 0x6d).
+    assert.deepEqual(Array.from(wasmBytes.slice(0, 4)), [0x00, 0x61, 0x73, 0x6d]);
+  } finally {
+    await ctx.close();
+  }
+}
+
+test('serves real installed Stockfish lite-single JS and WASM binary', testRealInstalledStockfishAssetsServed);

@@ -1,3 +1,4 @@
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
@@ -29,6 +30,7 @@ const MIME_TYPES = {
   '.js': 'application/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.wasm': 'application/wasm',
 };
 
 /**
@@ -219,13 +221,33 @@ function openSseStream(req, res, gameService, gameId, activeCleanups) {
 }
 
 /**
+ * Locates the single-threaded lite Stockfish Web Worker script inside the vendor directory.
+ *
+ * @param {string | undefined} stockfishDir - Directory containing Stockfish JS/WASM assets.
+ * @returns {string | null} Basename of the matching worker script or null when unavailable.
+ */
+function resolveStockfishScriptFile(stockfishDir) {
+  if (!stockfishDir) {
+    return null;
+  }
+  try {
+    const entries = fsSync.readdirSync(stockfishDir);
+    const match = entries.find((name) => /^stockfish-.*-lite-single\.js$/.test(name));
+    return match ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Creates the Node.js HTTP server handling chess REST endpoints and static assets.
  *
- * @param {{ gameService: object, publicDir: string }} deps - Server dependencies.
+ * @param {{ gameService: object, publicDir: string, stockfishDir?: string }} deps - Server dependencies.
  * @returns {http.Server} Configured Node.js HTTP server instance.
  */
-export function createHttpServer({ gameService, publicDir }) {
+export function createHttpServer({ gameService, publicDir, stockfishDir }) {
   const activeSseCleanups = new Set();
+  const stockfishScriptFile = resolveStockfishScriptFile(stockfishDir);
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -236,6 +258,9 @@ export function createHttpServer({ gameService, publicDir }) {
         sendJson(res, 200, {
           bots: listBotProfiles(),
           timeControls: listTimeControls(),
+          analysisEngine: {
+            scriptUrl: stockfishScriptFile ? `/vendor/stockfish/${stockfishScriptFile}` : null,
+          },
         });
         return;
       }
@@ -331,6 +356,15 @@ export function createHttpServer({ gameService, publicDir }) {
 
       if (pathname.startsWith('/api/')) {
         sendJson(res, 404, { error: 'API route not found' });
+        return;
+      }
+
+      if (req.method === 'GET' && pathname.startsWith('/vendor/stockfish/')) {
+        if (!stockfishDir) {
+          sendJson(res, 404, { error: 'Not found' });
+          return;
+        }
+        await serveStaticFile(res, stockfishDir, pathname.slice('/vendor/stockfish'.length));
         return;
       }
 

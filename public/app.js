@@ -1,3 +1,5 @@
+import { formatEvalScore, uciToMoveSquares } from './analysisHelper.js';
+import { createStockfishAnalyzer } from './stockfishClient.js';
 import { formatReviewMoveLabel, resolveReviewViewState } from './reviewHelper.js';
 import {
   canInteractWithBoard,
@@ -7,7 +9,12 @@ import {
   resolveSquareFromPoint,
   resolveViewerColor,
 } from './chessUiHelper.js';
-import { getAvatarSvg, getPieceSvg, playChessSound } from './chessAssets.js';
+import {
+  getAvatarSvg,
+  getClassificationBadgeInfo,
+  getPieceSvg,
+  playChessSound,
+} from './chessAssets.js';
 
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 
@@ -88,6 +95,12 @@ const state = {
   timeoutTriggeredForMove: false,
   dragState: null,
   rightDragStartSquare: null,
+  analysisScriptUrl: null,
+  analyzer: null,
+  analysisAbortController: null,
+  analysis: null,
+  analysisKey: null,
+  analysisProgress: null,
 };
 
 const elements = {
@@ -165,6 +178,21 @@ const elements = {
   gameOverCloseBtn: document.getElementById('game-over-close-btn'),
   modalRematchBtn: document.getElementById('modal-rematch-btn'),
   modalNewGameBtn: document.getElementById('modal-new-game-btn'),
+  modalReviewBtn: document.getElementById('modal-review-btn'),
+  reviewAnalyzeBtn: document.getElementById('review-analyze-btn'),
+  evalBar: document.getElementById('eval-bar'),
+  evalBarFill: document.getElementById('eval-bar-fill'),
+  evalBarScore: document.getElementById('eval-bar-score'),
+  analysisPanel: document.getElementById('analysis-panel'),
+  analysisProgress: document.getElementById('analysis-progress'),
+  analysisCancelBtn: document.getElementById('analysis-cancel-btn'),
+  analysisAccuracyRow: document.getElementById('analysis-accuracy-row'),
+  analysisWhiteAcc: document.getElementById('analysis-white-acc'),
+  analysisBlackAcc: document.getElementById('analysis-black-acc'),
+  evalGraphWrap: document.getElementById('eval-graph-wrap'),
+  evalGraph: document.getElementById('eval-graph'),
+  analysisCounts: document.getElementById('analysis-counts'),
+  analysisMoveNote: document.getElementById('analysis-move-note'),
 };
 
 /**
@@ -598,31 +626,281 @@ function renderPlayerCards(view) {
 }
 
 /**
- * Renders SVG tactical arrows drawn by right-dragging across board squares.
+ * Builds a cache key identifying a unique game, round, and move count for analysis results.
+ *
+ * @param {object | null} game - Current game snapshot.
+ * @returns {string | null} Composite key or null when no game is loaded.
+ */
+function getGameAnalysisKey(game) {
+  if (!game) {
+    return null;
+  }
+  return `${game.id}:${game.round ?? 1}:${game.history?.length ?? 0}`;
+}
+
+/**
+ * Returns the cached Stockfish analysis report when it matches the currently loaded game state.
+ *
+ * @param {object | null} game - Current game snapshot.
+ * @returns {object | null} Matching analysis report or null.
+ */
+function getActiveAnalysis(game) {
+  if (!game || !state.analysis) {
+    return null;
+  }
+  return state.analysisKey === getGameAnalysisKey(game) ? state.analysis : null;
+}
+
+/**
+ * Checks whether Chess.com-style post-game analysis can run on the current finished match.
+ *
+ * @param {object | null} game - Current game snapshot.
+ * @returns {boolean} True when Stockfish is configured, the game has ended, and moves exist.
+ */
+function canReviewGame(game) {
+  return Boolean(
+    game &&
+      state.analysisScriptUrl &&
+      game.status !== 'playing' &&
+      game.status !== 'waiting' &&
+      (game.history?.length ?? 0) > 0
+  );
+}
+
+/**
+ * Cancels any in-flight Stockfish analysis worker and clears progress state.
  *
  * @returns {void}
  */
-function renderBoardArrows() {
-  elements.boardArrows.innerHTML = '';
-  if (state.arrows.size === 0) {
+function cancelActiveAnalysis() {
+  if (state.analysisAbortController) {
+    state.analysisAbortController.abort();
+    state.analysisAbortController = null;
+  }
+  state.analysisProgress = null;
+  state.analyzer?.dispose();
+}
+
+/**
+ * Renders the vertical evaluation bar along the board edge for the active ply.
+ *
+ * @param {object} view - Resolved review/live view state.
+ * @param {object | null} activeAnalysis - Completed game analysis report, if available.
+ * @returns {void}
+ */
+function renderEvalBar(view, activeAnalysis) {
+  if (!activeAnalysis) {
+    elements.evalBar.hidden = true;
     return;
   }
 
+  const pos = activeAnalysis.positions[view.effectivePly] ?? activeAnalysis.positions.at(-1);
+  const rawWin = pos?.winPercent ?? 50;
+  // Keep a small visible sliver unless a forced mate or checkmate decides the position.
+  const isDecided = typeof pos?.eval?.mate === 'number' && pos.eval.mate !== 0;
+  const whiteHeight = isDecided ? (pos.eval.mate > 0 ? 100 : 0) : Math.max(4, Math.min(96, rawWin));
+  const whiteAhead = rawWin >= 50;
+  const placeAtBottom = state.isFlipped ? !whiteAhead : whiteAhead;
+
+  elements.evalBar.hidden = false;
+  elements.evalBar.classList.toggle('is-flipped', state.isFlipped);
+  elements.evalBarFill.style.height = `${whiteHeight.toFixed(1)}%`;
+  elements.evalBarScore.textContent = formatEvalScore(pos?.eval);
+  elements.evalBarScore.classList.toggle('is-bottom', placeAtBottom);
+  elements.evalBarScore.classList.toggle('is-top', !placeAtBottom);
+}
+
+/**
+ * Renders the Chess.com-style Game Review panel with progress, accuracy cards, SVG eval graph, and move callouts.
+ *
+ * @param {object} view - Resolved review/live view state.
+ * @param {object | null} activeAnalysis - Completed game analysis report, if available.
+ * @returns {void}
+ */
+function renderAnalysisPanel(view, activeAnalysis) {
+  const isRunning = Boolean(state.analysisProgress);
+  if (!isRunning && !activeAnalysis) {
+    elements.analysisPanel.hidden = true;
+    return;
+  }
+
+  elements.analysisPanel.hidden = false;
+  if (isRunning) {
+    elements.analysisProgress.hidden = false;
+    elements.analysisProgress.textContent = `Analyzing ${state.analysisProgress.completed}/${state.analysisProgress.total}...`;
+    elements.analysisCancelBtn.hidden = false;
+    elements.analysisAccuracyRow.hidden = true;
+    elements.evalGraphWrap.hidden = true;
+    elements.analysisCounts.hidden = true;
+    elements.analysisMoveNote.hidden = false;
+    elements.analysisMoveNote.textContent = 'Running Stockfish WASM locally in your browser...';
+    return;
+  }
+
+  elements.analysisProgress.hidden = true;
+  elements.analysisCancelBtn.hidden = true;
+  elements.analysisAccuracyRow.hidden = false;
+  elements.evalGraphWrap.hidden = false;
+  elements.analysisCounts.hidden = false;
+  elements.analysisMoveNote.hidden = false;
+
+  const { summary, positions, moves } = activeAnalysis;
+  elements.analysisWhiteAcc.textContent =
+    summary.whiteAccuracy !== null ? `${summary.whiteAccuracy}%` : '--';
+  elements.analysisBlackAcc.textContent =
+    summary.blackAccuracy !== null ? `${summary.blackAccuracy}%` : '--';
+
+  // Build SVG area graph of White win% (0..100) across all plies.
   const ns = 'http://www.w3.org/2000/svg';
-  const defs = document.createElementNS(ns, 'defs');
-  const marker = document.createElementNS(ns, 'marker');
-  marker.setAttribute('id', 'chess-arrow-head');
-  marker.setAttribute('markerWidth', '4');
-  marker.setAttribute('markerHeight', '4');
-  marker.setAttribute('refX', '2.5');
-  marker.setAttribute('refY', '2');
-  marker.setAttribute('orient', 'auto');
-  const polygon = document.createElementNS(ns, 'polygon');
-  polygon.setAttribute('points', '0 0, 4 2, 0 4');
-  polygon.setAttribute('fill', 'rgba(255, 170, 0, 0.85)');
-  marker.appendChild(polygon);
-  defs.appendChild(marker);
-  elements.boardArrows.appendChild(defs);
+  const graphW = 320;
+  const graphH = 68;
+  elements.evalGraph.innerHTML = '';
+
+  const midLine = document.createElementNS(ns, 'line');
+  midLine.setAttribute('x1', '0');
+  midLine.setAttribute('y1', String(graphH / 2));
+  midLine.setAttribute('x2', String(graphW));
+  midLine.setAttribute('y2', String(graphH / 2));
+  midLine.setAttribute('stroke', 'rgba(255,255,255,0.18)');
+  midLine.setAttribute('stroke-width', '1');
+  elements.evalGraph.appendChild(midLine);
+
+  const count = positions.length;
+  const xForPly = (ply) => (count <= 1 ? 0 : (ply / (count - 1)) * graphW);
+  const yForWin = (winPct) => ((100 - winPct) / 100) * graphH;
+
+  if (count > 1) {
+    const pts = positions.map((p) => `${xForPly(p.ply).toFixed(1)},${yForWin(p.winPercent).toFixed(1)}`);
+    const poly = document.createElementNS(ns, 'polygon');
+    poly.setAttribute('points', `0,${graphH} ${pts.join(' ')} ${graphW},${graphH}`);
+    poly.setAttribute('fill', 'rgba(243, 241, 234, 0.85)');
+    elements.evalGraph.appendChild(poly);
+  }
+
+  const cursorX = xForPly(view.effectivePly);
+  const cursor = document.createElementNS(ns, 'line');
+  cursor.setAttribute('x1', cursorX.toFixed(1));
+  cursor.setAttribute('y1', '0');
+  cursor.setAttribute('x2', cursorX.toFixed(1));
+  cursor.setAttribute('y2', String(graphH));
+  cursor.setAttribute('stroke', '#81b64c');
+  cursor.setAttribute('stroke-width', '2');
+  elements.evalGraph.appendChild(cursor);
+
+  elements.analysisCounts.innerHTML = '';
+  for (const key of ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder']) {
+    const info = getClassificationBadgeInfo(key);
+    const chip = document.createElement('div');
+    chip.className = 'analysis-count-chip';
+    const labelSpan = document.createElement('span');
+    labelSpan.innerHTML = `<strong style="color:${info.color}">${info.symbol}</strong> ${info.label}`;
+    const valueSpan = document.createElement('strong');
+    valueSpan.textContent = `${summary.counts.w[key]} / ${summary.counts.b[key]}`;
+    chip.append(labelSpan, valueSpan);
+    elements.analysisCounts.appendChild(chip);
+  }
+
+  if (view.effectivePly === 0) {
+    elements.analysisMoveNote.textContent =
+      'Starting position — select any move or click the graph to inspect evaluations.';
+    return;
+  }
+
+  const moveAnalysis = moves[view.effectivePly - 1];
+  if (!moveAnalysis) {
+    elements.analysisMoveNote.textContent = '';
+    return;
+  }
+  const badge = getClassificationBadgeInfo(moveAnalysis.classification);
+  const label = formatReviewMoveLabel(state.game.history, view.effectivePly);
+  const evalText = formatEvalScore(moveAnalysis.evalAfter);
+  const bestSq = uciToMoveSquares(moveAnalysis.bestMoveUci);
+  const bestHint =
+    bestSq && moveAnalysis.bestMoveUci !== moveAnalysis.playedUci
+      ? ` • Best was ${bestSq.from}→${bestSq.to}${bestSq.promotion ? `=${bestSq.promotion.toUpperCase()}` : ''}`
+      : '';
+  elements.analysisMoveNote.textContent = `${label} is ${badge.label} (${evalText})${bestHint}`;
+}
+
+/**
+ * Appends an arrow marker definition and line onto the board SVG overlay.
+ *
+ * @param {string} id - SVG marker id.
+ * @param {string} color - Arrow stroke and head fill CSS color.
+ * @param {{ x: number, y: number }} p1 - Origin square center in 800x800 SVG space.
+ * @param {{ x: number, y: number }} p2 - Destination square center in 800x800 SVG space.
+ * @returns {void}
+ */
+function appendBoardArrow(id, color, p1, p2) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1) {
+    return;
+  }
+
+  let defs = elements.boardArrows.querySelector('defs');
+  if (!defs) {
+    defs = document.createElementNS(ns, 'defs');
+    elements.boardArrows.appendChild(defs);
+  }
+  if (!elements.boardArrows.querySelector(`#${id}`)) {
+    const marker = document.createElementNS(ns, 'marker');
+    marker.setAttribute('id', id);
+    marker.setAttribute('markerWidth', '4');
+    marker.setAttribute('markerHeight', '4');
+    marker.setAttribute('refX', '2.5');
+    marker.setAttribute('refY', '2');
+    marker.setAttribute('orient', 'auto');
+    const polygon = document.createElementNS(ns, 'polygon');
+    polygon.setAttribute('points', '0 0, 4 2, 0 4');
+    polygon.setAttribute('fill', color);
+    marker.appendChild(polygon);
+    defs.appendChild(marker);
+  }
+
+  // Pull back the endpoint slightly so the arrowhead tip rests cleanly inside the target square.
+  const trim = 22;
+  const x2 = p2.x - (dx / len) * trim;
+  const y2 = p2.y - (dy / len) * trim;
+
+  const line = document.createElementNS(ns, 'line');
+  line.setAttribute('x1', String(p1.x));
+  line.setAttribute('y1', String(p1.y));
+  line.setAttribute('x2', String(x2));
+  line.setAttribute('y2', String(y2));
+  line.setAttribute('stroke', color);
+  line.setAttribute('stroke-width', '15');
+  line.setAttribute('stroke-linecap', 'round');
+  line.setAttribute('marker-end', `url(#${id})`);
+  elements.boardArrows.appendChild(line);
+}
+
+/**
+ * Renders SVG tactical arrows drawn by right-dragging plus the engine's best-move suggestion arrow during review.
+ *
+ * @param {object} [view] - Resolved review/live view state.
+ * @param {object | null} [activeAnalysis] - Completed game analysis report, if available.
+ * @returns {void}
+ */
+function renderBoardArrows(
+  view = resolveReviewViewState(state.game, state.reviewPly),
+  activeAnalysis = getActiveAnalysis(state.game)
+) {
+  elements.boardArrows.innerHTML = '';
+  const bestMove =
+    activeAnalysis && view && view.effectivePly >= 1
+      ? activeAnalysis.moves[view.effectivePly - 1]
+      : null;
+  const bestSquares =
+    bestMove && bestMove.bestMoveUci !== bestMove.playedUci
+      ? uciToMoveSquares(bestMove.bestMoveUci)
+      : null;
+
+  if (state.arrows.size === 0 && !bestSquares) {
+    return;
+  }
 
   const squareCenter = (squareName) => {
     const fileIdx = FILES.indexOf(squareName[0]);
@@ -636,31 +914,23 @@ function renderBoardArrows() {
     };
   };
 
+  if (bestSquares) {
+    appendBoardArrow(
+      'chess-best-arrow-head',
+      'rgba(129, 182, 76, 0.9)',
+      squareCenter(bestSquares.from),
+      squareCenter(bestSquares.to)
+    );
+  }
+
   for (const key of state.arrows) {
     const [from, to] = key.split('->');
-    const p1 = squareCenter(from);
-    const p2 = squareCenter(to);
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const len = Math.hypot(dx, dy);
-    if (len < 1) {
-      continue;
-    }
-    // Pull back the endpoint slightly so the arrowhead tip rests cleanly inside the target square.
-    const trim = 22;
-    const x2 = p2.x - (dx / len) * trim;
-    const y2 = p2.y - (dy / len) * trim;
-
-    const line = document.createElementNS(ns, 'line');
-    line.setAttribute('x1', String(p1.x));
-    line.setAttribute('y1', String(p1.y));
-    line.setAttribute('x2', String(x2));
-    line.setAttribute('y2', String(y2));
-    line.setAttribute('stroke', 'rgba(255, 170, 0, 0.82)');
-    line.setAttribute('stroke-width', '15');
-    line.setAttribute('stroke-linecap', 'round');
-    line.setAttribute('marker-end', 'url(#chess-arrow-head)');
-    elements.boardArrows.appendChild(line);
+    appendBoardArrow(
+      'chess-arrow-head',
+      'rgba(255, 170, 0, 0.85)',
+      squareCenter(from),
+      squareCenter(to)
+    );
   }
 }
 
@@ -668,9 +938,10 @@ function renderBoardArrows() {
  * Renders the 8x8 interactive chess board according to orientation, highlights, SVG pieces, and review state.
  *
  * @param {object} view - Resolved review/live view state.
+ * @param {object | null} [activeAnalysis] - Completed game analysis report, if available.
  * @returns {void}
  */
-function renderBoard(view) {
+function renderBoard(view, activeAnalysis = getActiveAnalysis(state.game)) {
   const { game } = state;
   if (!game || !view.board) {
     return;
@@ -680,6 +951,10 @@ function renderBoard(view) {
   elements.board.classList.toggle('is-reviewing', view.isReviewing);
   const rowOrder = state.isFlipped ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
   const colOrder = state.isFlipped ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
+  const activeMoveAnalysis =
+    activeAnalysis && view.effectivePly >= 1
+      ? activeAnalysis.moves[view.effectivePly - 1]
+      : null;
 
   const legalTargets = view.isReviewing
     ? new Set()
@@ -745,11 +1020,21 @@ function renderBoard(view) {
         btn.appendChild(pieceEl);
       }
 
+      if (activeMoveAnalysis && view.lastMove?.to === squareName) {
+        const badgeInfo = getClassificationBadgeInfo(activeMoveAnalysis.classification);
+        const badgeEl = document.createElement('span');
+        badgeEl.className = 'square-badge';
+        badgeEl.style.backgroundColor = badgeInfo.color;
+        badgeEl.title = badgeInfo.label;
+        badgeEl.textContent = badgeInfo.symbol;
+        btn.appendChild(badgeEl);
+      }
+
       elements.board.appendChild(btn);
     }
   }
 
-  renderBoardArrows();
+  renderBoardArrows(view, activeAnalysis);
 }
 
 /**
@@ -758,9 +1043,10 @@ function renderBoard(view) {
  * @param {{ san: string } | undefined} move - Move record at moveIndex, if present.
  * @param {number} moveIndex - Zero-based index inside game.history.
  * @param {number} activeHistoryIndex - Currently highlighted zero-based history index.
+ * @param {object | null} [moveAnalysis] - Optional analyzed move entry for badge display.
  * @returns {HTMLElement} Button element for a move or placeholder span.
  */
-function createHistoryMoveCell(move, moveIndex, activeHistoryIndex) {
+function createHistoryMoveCell(move, moveIndex, activeHistoryIndex, moveAnalysis = null) {
   if (!move) {
     const placeholder = document.createElement('span');
     placeholder.className = 'history-placeholder';
@@ -770,9 +1056,23 @@ function createHistoryMoveCell(move, moveIndex, activeHistoryIndex) {
   const moveBtn = document.createElement('button');
   moveBtn.type = 'button';
   moveBtn.className = 'history-move-btn';
-  moveBtn.textContent = move.san;
   moveBtn.disabled = state.isPendingRequest;
   moveBtn.classList.toggle('is-active', moveIndex === activeHistoryIndex);
+
+  const sanSpan = document.createElement('span');
+  sanSpan.textContent = move.san;
+  moveBtn.appendChild(sanSpan);
+
+  if (moveAnalysis) {
+    const badgeInfo = getClassificationBadgeInfo(moveAnalysis.classification);
+    const pill = document.createElement('span');
+    pill.className = 'move-class-pill';
+    pill.style.color = badgeInfo.color;
+    pill.textContent = badgeInfo.symbol;
+    pill.title = badgeInfo.label;
+    moveBtn.appendChild(pill);
+  }
+
   moveBtn.addEventListener('click', () => setReviewPly(moveIndex + 1));
   return moveBtn;
 }
@@ -781,9 +1081,10 @@ function createHistoryMoveCell(move, moveIndex, activeHistoryIndex) {
  * Renders the move list grouped into numbered clickable White/Black pairs.
  *
  * @param {object} view - Resolved review/live view state.
+ * @param {object | null} [activeAnalysis] - Completed game analysis report, if available.
  * @returns {void}
  */
-function renderHistory(view) {
+function renderHistory(view, activeAnalysis = null) {
   const history = state.game?.history ?? [];
   elements.moveHistory.innerHTML = '';
 
@@ -803,11 +1104,17 @@ function renderHistory(view) {
     num.className = 'history-num';
     num.textContent = `${i / 2 + 1}.`;
 
-    const whiteCell = createHistoryMoveCell(history[i], i, view.activeHistoryIndex);
+    const whiteCell = createHistoryMoveCell(
+      history[i],
+      i,
+      view.activeHistoryIndex,
+      activeAnalysis?.moves?.[i] ?? null
+    );
     const blackCell = createHistoryMoveCell(
       history[i + 1],
       i + 1,
-      view.activeHistoryIndex
+      view.activeHistoryIndex,
+      activeAnalysis?.moves?.[i + 1] ?? null
     );
 
     row.append(num, whiteCell, blackCell);
@@ -948,6 +1255,8 @@ function renderGameOverModal(game) {
     game.mode === 'friend' ? 'player' : game.bot?.avatarId ?? 'elani'
   );
   elements.modalNewGameBtn.textContent = game.mode === 'friend' ? 'New Game' : 'New Bot';
+  elements.modalReviewBtn.hidden = !canReviewGame(game);
+  elements.modalReviewBtn.disabled = Boolean(state.analysisProgress);
 
   if (game.mode === 'friend') {
     if (!viewerColor) {
@@ -997,6 +1306,9 @@ function renderApp() {
     elements.reviewPrevBtn.disabled = true;
     elements.reviewNextBtn.disabled = true;
     elements.reviewLiveBtn.disabled = true;
+    elements.reviewAnalyzeBtn.hidden = true;
+    elements.evalBar.hidden = true;
+    elements.analysisPanel.hidden = true;
     elements.gameOverModal.hidden = true;
     return;
   }
@@ -1004,6 +1316,7 @@ function renderApp() {
   const game = state.game;
   const isFriendMode = game.mode === 'friend';
   const viewerColor = getViewerColor();
+  const activeAnalysis = getActiveAnalysis(game);
   const view = resolveReviewViewState(game, state.reviewPly);
   if (!view.isReviewing && state.reviewPly !== null) {
     state.reviewPly = null;
@@ -1097,10 +1410,15 @@ function renderApp() {
   elements.reviewPrevBtn.disabled = state.isPendingRequest || !view.canStepBackward;
   elements.reviewNextBtn.disabled = state.isPendingRequest || !view.canStepForward;
   elements.reviewLiveBtn.disabled = state.isPendingRequest || !view.canStepForward;
+  elements.reviewAnalyzeBtn.hidden = !canReviewGame(game);
+  elements.reviewAnalyzeBtn.disabled = state.isPendingRequest || Boolean(state.analysisProgress);
+  elements.reviewAnalyzeBtn.textContent = activeAnalysis ? 'Review Ready' : 'Game Review';
 
   renderPlayerCards(view);
-  renderBoard(view);
-  renderHistory(view);
+  renderEvalBar(view, activeAnalysis);
+  renderBoard(view, activeAnalysis);
+  renderHistory(view, activeAnalysis);
+  renderAnalysisPanel(view, activeAnalysis);
   renderGameOverModal(game);
 }
 
@@ -1687,6 +2005,9 @@ function applyIncomingSseGame(incoming) {
   const roundChanged = (prevGame.round ?? 1) !== (incoming.round ?? 1);
   const historyShrunk = incoming.history.length < prevGame.history.length;
   if (roundChanged || historyShrunk) {
+    cancelActiveAnalysis();
+    state.analysis = null;
+    state.analysisKey = null;
     state.reviewPly = null;
     state.selectedSquare = null;
     state.dismissedGameOverForId = null;
@@ -1750,6 +2071,9 @@ async function startNewGame(override = {}) {
     override.playerName ?? (elements.friendNameInput?.value?.trim() || undefined);
 
   await runPendingAction(async () => {
+    cancelActiveAnalysis();
+    state.analysis = null;
+    state.analysisKey = null;
     disconnectGameEvents();
     const payload =
       mode === 'friend'
@@ -1840,6 +2164,9 @@ async function sendFriendAction(endpoint, action) {
       body: JSON.stringify({ action }),
     });
     if ((prevGame.round ?? 1) !== (updated.round ?? 1)) {
+      cancelActiveAnalysis();
+      state.analysis = null;
+      state.analysisKey = null;
       state.reviewPly = null;
       state.dismissedGameOverForId = null;
       state.dismissedGameOverRound = null;
@@ -1847,6 +2174,9 @@ async function sendFriendAction(endpoint, action) {
       state.arrows.clear();
       state.isFlipped = resolveViewerColor(updated, state.viewerSlot) === 'b';
     } else if (updated.history.length < prevGame.history.length) {
+      cancelActiveAnalysis();
+      state.analysis = null;
+      state.analysisKey = null;
       state.reviewPly = null;
       state.dismissedGameOverForId = null;
       state.dismissedGameOverRound = null;
@@ -1934,12 +2264,101 @@ async function undoTurn() {
     const updated = await requestJson(`/api/games/${state.game.id}/undo`, {
       method: 'POST',
     });
+    cancelActiveAnalysis();
+    state.analysis = null;
+    state.analysisKey = null;
     state.game = updated;
     state.reviewPly = null;
     state.dismissedGameOverForId = null;
     state.dismissedGameOverRound = null;
     syncLocalClockBaseline(updated);
   });
+}
+
+/**
+ * Runs client-side Stockfish WASM analysis on the finished match and opens interactive Game Review.
+ *
+ * @returns {Promise<void>}
+ */
+async function startGameReview() {
+  const game = state.game;
+  if (!canReviewGame(game) || state.isPendingRequest || state.analysisProgress) {
+    return;
+  }
+
+  dismissGameOverModal();
+  setActiveTab('play');
+
+  const key = getGameAnalysisKey(game);
+  if (state.analysis && state.analysisKey === key) {
+    if (state.reviewPly === null && game.history.length > 0) {
+      state.reviewPly = 1;
+    }
+    renderApp();
+    return;
+  }
+
+  cancelActiveAnalysis();
+  setErrorMessage(null);
+  const controller = new AbortController();
+  state.analysisAbortController = controller;
+  state.analysisProgress = { completed: 0, total: game.history.length + 1 };
+  renderApp();
+
+  try {
+    if (!state.analyzer) {
+      state.analyzer = createStockfishAnalyzer({
+        scriptUrl: state.analysisScriptUrl,
+        depth: 10,
+      });
+    }
+    const report = await state.analyzer.analyzeGame(game, {
+      depth: 10,
+      signal: controller.signal,
+      onProgress: (progress) => {
+        state.analysisProgress = progress;
+        renderAnalysisPanel(resolveReviewViewState(state.game, state.reviewPly), null);
+      },
+    });
+    if (controller.signal.aborted || getGameAnalysisKey(state.game) !== key) {
+      return;
+    }
+    state.analysis = report;
+    state.analysisKey = key;
+    if (state.reviewPly === null && game.history.length > 0) {
+      state.reviewPly = 1;
+    }
+  } catch (err) {
+    if (err?.name !== 'AbortError') {
+      setErrorMessage(err?.message || 'Unable to analyze game');
+    }
+  } finally {
+    if (state.analysisAbortController === controller) {
+      state.analysisAbortController = null;
+      state.analysisProgress = null;
+    }
+    renderApp();
+  }
+}
+
+/**
+ * Maps a click on the SVG evaluation graph onto the nearest historical ply.
+ *
+ * @param {MouseEvent} event - Click event on the eval graph SVG.
+ * @returns {void}
+ */
+function handleEvalGraphClick(event) {
+  const activeAnalysis = getActiveAnalysis(state.game);
+  if (!activeAnalysis || activeAnalysis.positions.length <= 1) {
+    return;
+  }
+  const rect = elements.evalGraph.getBoundingClientRect();
+  if (rect.width <= 0) {
+    return;
+  }
+  const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+  const targetPly = Math.round(ratio * (activeAnalysis.positions.length - 1));
+  setReviewPly(targetPly);
 }
 
 /**
@@ -2060,6 +2479,9 @@ async function bootstrapApp() {
     if (Array.isArray(meta.timeControls) && meta.timeControls.length > 0) {
       state.timeControls = meta.timeControls;
     }
+    if (typeof meta.analysisEngine?.scriptUrl === 'string') {
+      state.analysisScriptUrl = meta.analysisEngine.scriptUrl;
+    }
   } catch {
     // Keep local fallback metadata if /api/meta temporarily fails.
   }
@@ -2129,6 +2551,13 @@ elements.resignBtn.addEventListener('click', resignActiveGame);
 elements.offerAcceptBtn.addEventListener('click', () => respondToIncomingOffer('accept'));
 elements.offerDeclineBtn.addEventListener('click', () => respondToIncomingOffer('decline'));
 elements.rematchBtn.addEventListener('click', handleRematchAction);
+elements.modalReviewBtn.addEventListener('click', startGameReview);
+elements.reviewAnalyzeBtn.addEventListener('click', startGameReview);
+elements.analysisCancelBtn.addEventListener('click', () => {
+  cancelActiveAnalysis();
+  renderApp();
+});
+elements.evalGraph.addEventListener('click', handleEvalGraphClick);
 elements.modalRematchBtn.addEventListener('click', handleRematchAction);
 elements.modalNewGameBtn.addEventListener('click', () => {
   dismissGameOverModal();
