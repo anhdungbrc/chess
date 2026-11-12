@@ -1,0 +1,15 @@
+{
+  "name": "chess-web-ai",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Node.js web application to play chess against AI",
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test",
+    "check": "node --check src/main.js && node --check src/domain/aiEngine.js && node --check src/domain/botProfiles.js && node --check src/domain/timeControls.js && node --check src/service/gameService.js && node --check src/server/validators.js && node --check src/server/httpServer.js && node --check public/reviewHelper.js && node --check public/chessUiHelper.js && node --check public/chessAssets.js && node --check public/app.js"
+  },
+  "dependencies": {
+    "chess.js": "^1.4.0"
+  }
+}

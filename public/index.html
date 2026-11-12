@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Play Chess vs Bots — Chess.com Style</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-layout">
+      <aside class="nav-rail" aria-label="Primary navigation">
+        <div class="brand">
+          <span class="brand-icon" aria-hidden="true">
+            <svg viewBox="0 0 32 32">
+              <path
+                d="M16 4c-2.5 0-4.5 2-4.5 4.5 0 1.4.6 2.6 1.6 3.4-2.1 1.1-3.6 3.2-3.6 5.6 0 1.6.7 3.1 1.8 4.1-2.4 1-4.9 3.8-4.9 7.4h19.2c0-3.6-2.5-6.4-4.9-7.4 1.1-1 1.8-2.5 1.8-4.1 0-2.4-1.5-4.5-3.6-5.6 1-.8 1.6-2 1.6-3.4C20.5 6 18.5 4 16 4z"
+                fill="#81b64c"
+              />
+            </svg>
+          </span>
+          <span class="brand-text">Chess<span class="brand-accent">.play</span></span>
+        </div>
+
+        <nav class="rail-nav">
+          <button id="nav-play-btn" type="button" class="rail-btn is-active">
+            <span class="rail-glyph" aria-hidden="true">♟</span>
+            <span class="rail-label">Play</span>
+          </button>
+          <button id="nav-bots-btn" type="button" class="rail-btn">
+            <span class="rail-glyph" aria-hidden="true">⚙</span>
+            <span class="rail-label">Bots</span>
+          </button>
+          <button id="nav-flip-btn" type="button" class="rail-btn">
+            <span class="rail-glyph" aria-hidden="true">⇅</span>
+            <span class="rail-label">Flip Board</span>
+          </button>
+          <button id="nav-sound-btn" type="button" class="rail-btn" aria-pressed="true">
+            <span class="rail-glyph" aria-hidden="true">🔊</span>
+            <span class="rail-label" id="sound-label">Sound On</span>
+          </button>
+        </nav>
+      </aside>
+
+      <main class="board-stage" aria-label="Chess board stage">
+        <div id="top-player-card" class="player-card">
+          <div class="player-identity">
+            <div id="top-avatar" class="player-avatar"></div>
+            <div class="player-meta">
+              <div class="player-name-row">
+                <span id="top-name" class="player-name">Opponent</span>
+                <span id="top-rating" class="player-rating" hidden></span>
+              </div>
+              <div class="captures-row">
+                <div id="top-captures" class="captured-pieces"></div>
+                <span id="top-advantage" class="material-advantage" hidden></span>
+              </div>
+            </div>
+          </div>
+          <div id="top-clock" class="player-clock" aria-label="Top player clock" hidden></div>
+        </div>
+
+        <div class="board-wrapper">
+          <div
+            id="chess-board"
+            class="chess-board"
+            role="grid"
+            aria-label="8x8 Chess Board"
+          ></div>
+          <svg
+            id="board-arrows"
+            class="board-arrows"
+            viewBox="0 0 800 800"
+            aria-hidden="true"
+          ></svg>
+          <div id="drag-ghost" class="drag-ghost" hidden></div>
+
+          <div
+            id="promotion-modal"
+            class="board-modal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="promotion-title"
+            hidden
+          >
+            <div class="board-modal-card promotion-card">
+              <h2 id="promotion-title">Promote Pawn</h2>
+              <div id="promotion-choices" class="promotion-choices"></div>
+              <button id="promotion-cancel-btn" type="button" class="btn btn-dark">
+                Cancel
+              </button>
+            </div>
+          </div>
+
+          <div
+            id="game-over-modal"
+            class="board-modal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="game-over-title"
+            hidden
+          >
+            <div class="board-modal-card game-over-card">
+              <button
+                id="game-over-close-btn"
+                type="button"
+                class="modal-close-btn"
+                aria-label="Close game result"
+              >
+                ×
+              </button>
+              <div class="game-over-header">
+                <h2 id="game-over-title">Game Over</h2>
+                <p id="game-over-subtitle" class="game-over-subtitle"></p>
+              </div>
+              <div class="game-over-versus">
+                <div id="game-over-player-avatar" class="versus-avatar"></div>
+                <span id="game-over-score" class="versus-score">1 - 0</span>
+                <div id="game-over-bot-avatar" class="versus-avatar"></div>
+              </div>
+              <div class="game-over-actions">
+                <button id="modal-rematch-btn" type="button" class="btn btn-green">
+                  Rematch
+                </button>
+                <button id="modal-new-game-btn" type="button" class="btn btn-dark">
+                  New Bot
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="bottom-player-card" class="player-card">
+          <div class="player-identity">
+            <div id="bottom-avatar" class="player-avatar"></div>
+            <div class="player-meta">
+              <div class="player-name-row">
+                <span id="bottom-name" class="player-name">You</span>
+                <span id="bottom-rating" class="player-rating" hidden></span>
+              </div>
+              <div class="captures-row">
+                <div id="bottom-captures" class="captured-pieces"></div>
+                <span id="bottom-advantage" class="material-advantage" hidden></span>
+              </div>
+            </div>
+          </div>
+          <div id="bottom-clock" class="player-clock" aria-label="Bottom player clock" hidden></div>
+        </div>
+
+        <p id="error-banner" class="error-banner" role="alert" hidden></p>
+      </main>
+
+      <aside class="side-panel" aria-label="Game controls and history">
+        <div class="panel-tabs" role="tablist">
+          <button
+            id="tab-play-btn"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            class="panel-tab is-active"
+          >
+            Play
+          </button>
+          <button
+            id="tab-setup-btn"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            class="panel-tab"
+          >
+            New Game
+          </button>
+        </div>
+
+        <section id="panel-play-view" class="panel-body">
+          <div class="status-strip">
+            <p id="status-banner" class="status-banner" aria-live="polite">
+              Starting game...
+            </p>
+            <button
+              id="return-live-btn"
+              type="button"
+              class="btn btn-compact btn-accent"
+              hidden
+            >
+              Live
+            </button>
+          </div>
+
+          <div id="bot-tagline-box" class="bot-chat-bubble">
+            <span id="bot-tagline">Ready for a match!</span>
+          </div>
+
+          <div id="invite-link-box" class="friend-card" hidden>
+            <span class="friend-card-label">Invite a friend (no login required)</span>
+            <div class="invite-row">
+              <input
+                id="invite-link-input"
+                type="text"
+                class="text-input"
+                readonly
+                aria-label="Invite link"
+              />
+              <button id="copy-invite-btn" type="button" class="btn btn-green btn-compact">
+                Copy
+              </button>
+            </div>
+          </div>
+
+          <div id="join-match-box" class="friend-card" hidden>
+            <span id="join-match-label" class="friend-card-label">Join this match</span>
+            <div class="invite-row">
+              <input
+                id="join-name-input"
+                type="text"
+                class="text-input"
+                maxlength="24"
+                placeholder="Your name (optional)"
+                aria-label="Your display name"
+              />
+              <button id="join-match-btn" type="button" class="btn btn-green btn-compact">
+                Join
+              </button>
+            </div>
+          </div>
+
+          <div id="friend-offer-banner" class="offer-banner" hidden>
+            <span id="friend-offer-text" class="offer-text"></span>
+            <div class="offer-actions">
+              <button id="offer-accept-btn" type="button" class="btn btn-green btn-compact">
+                Accept
+              </button>
+              <button id="offer-decline-btn" type="button" class="btn btn-dark btn-compact">
+                Decline
+              </button>
+            </div>
+          </div>
+
+          <div class="moves-section">
+            <div class="moves-toolbar">
+              <span class="moves-label">Moves</span>
+              <div class="history-controls" role="group" aria-label="Move navigation">
+                <button
+                  id="review-first-btn"
+                  type="button"
+                  class="btn-icon"
+                  title="First move"
+                  aria-label="First move"
+                  disabled
+                >
+                  |&lt;
+                </button>
+                <button
+                  id="review-prev-btn"
+                  type="button"
+                  class="btn-icon"
+                  title="Previous move (Left Arrow)"
+                  aria-label="Previous move"
+                  disabled
+                >
+                  &lt;
+                </button>
+                <button
+                  id="review-next-btn"
+                  type="button"
+                  class="btn-icon"
+                  title="Next move (Right Arrow)"
+                  aria-label="Next move"
+                  disabled
+                >
+                  &gt;
+                </button>
+                <button
+                  id="review-live-btn"
+                  type="button"
+                  class="btn-icon"
+                  title="Latest move"
+                  aria-label="Latest move"
+                  disabled
+                >
+                  &gt;|
+                </button>
+              </div>
+            </div>
+            <div id="move-history" class="move-history" aria-live="polite"></div>
+          </div>
+
+          <div class="match-actions">
+            <button id="flip-btn" type="button" class="btn btn-dark" title="Flip board">
+              Flip
+            </button>
+            <button id="undo-btn" type="button" class="btn btn-dark" disabled>
+              Takeback
+            </button>
+            <button id="draw-btn" type="button" class="btn btn-dark" hidden disabled>
+              Draw
+            </button>
+            <button id="resign-btn" type="button" class="btn btn-dark" disabled>
+              Resign
+            </button>
+            <button id="rematch-btn" type="button" class="btn btn-green">
+              Rematch
+            </button>
+          </div>
+        </section>
+
+        <section id="panel-setup-view" class="panel-body" hidden>
+          <div class="setup-section">
+            <h2 class="setup-heading">Game Mode</h2>
+            <div class="mode-picker" role="radiogroup" aria-label="Game mode">
+              <button id="mode-bot-btn" type="button" class="color-option is-selected">
+                <span>vs Bot</span>
+              </button>
+              <button id="mode-friend-btn" type="button" class="color-option">
+                <span>vs Friend</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="bot-setup-section" class="setup-section">
+            <h2 class="setup-heading">Choose Bot</h2>
+            <div id="bot-list" class="bot-list" role="radiogroup" aria-label="Bot opponents"></div>
+          </div>
+
+          <div id="friend-setup-section" class="setup-section" hidden>
+            <h2 class="setup-heading">Your Name</h2>
+            <input
+              id="friend-name-input"
+              type="text"
+              class="text-input"
+              maxlength="24"
+              placeholder="Your name (optional)"
+              aria-label="Host display name"
+            />
+          </div>
+
+          <div class="setup-section">
+            <h2 class="setup-heading">Play As</h2>
+            <div id="color-picker" class="color-picker" role="radiogroup" aria-label="Piece color">
+              <button
+                id="color-white-btn"
+                type="button"
+                class="color-option is-selected"
+                data-color="w"
+              >
+                <span class="color-swatch swatch-white" aria-hidden="true">♔</span>
+                <span>White</span>
+              </button>
+              <button
+                id="color-black-btn"
+                type="button"
+                class="color-option"
+                data-color="b"
+              >
+                <span class="color-swatch swatch-black" aria-hidden="true">♚</span>
+                <span>Black</span>
+              </button>
+              <button
+                id="color-random-btn"
+                type="button"
+                class="color-option"
+                data-color="random"
+                hidden
+              >
+                <span class="color-swatch" aria-hidden="true">🎲</span>
+                <span>Random</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="setup-section">
+            <h2 class="setup-heading">Time Control</h2>
+            <div
+              id="time-control-list"
+              class="time-grid"
+              role="radiogroup"
+              aria-label="Time controls"
+            ></div>
+          </div>
+
+          <button id="new-game-btn" type="button" class="btn btn-green btn-play-cta">
+            Play
+          </button>
+        </section>
+      </aside>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
