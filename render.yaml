@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: chess-web-ai
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    # Only deploy on Render after GitHub Actions CI checks pass on main.
+    autoDeployTrigger: checksPass
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/meta
+
