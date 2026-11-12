@@ -407,8 +407,9 @@ body {
   border: 6px solid rgba(0, 0, 0, 0.18);
 }
 
+/* Keep standard cursor while pending server/bot responses so the app does not appear frozen. */
 .square:disabled {
-  cursor: wait;
+  cursor: default;
 }
 
 .chess-board.is-reviewing .square {
