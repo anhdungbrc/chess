@@ -517,8 +517,8 @@ async function testPostTimeoutEndpoint() {
 }
 
 /**
- * Verifies real public/ assets serve the English Chess.com shell and new ES module helpers.
- * Expected: index.html includes Chess.com layout hooks in English; chessAssets.js and chessUiHelper.js return 200 JS.
+ * Verifies real public/ assets serve the Vietnamese default Chess.com shell, settings modal, and new ES module helpers.
+ * Expected: index.html defaults to Vietnamese (lang="vi"), includes settings and Chess.com layout hooks; chessAssets.js, chessUiHelper.js, and i18n.js return 200 JS.
  */
 async function testRealPublicChessComAssetsServed() {
   const ctx = await startTestServer({ publicDir: REAL_PUBLIC_DIR });
@@ -526,7 +526,7 @@ async function testRealPublicChessComAssetsServed() {
     const htmlRes = await fetch(`${ctx.baseUrl}/`);
     assert.equal(htmlRes.status, 200);
     const html = await htmlRes.text();
-    assert.match(html, /<html\s+lang="en"/i);
+    assert.match(html, /<html\s+lang="vi"/i);
     assert.match(html, /id="chess-board"/);
     assert.match(html, /id="top-player-card"/);
     assert.match(html, /id="bottom-player-card"/);
@@ -548,6 +548,12 @@ async function testRealPublicChessComAssetsServed() {
     assert.match(html, /id="fullscreen-exit-btn"/);
     assert.match(html, /id="mobile-chat-fab"/);
     assert.match(html, /id="mobile-chat-popup"/);
+    assert.match(html, /id="nav-settings-btn"/);
+    assert.match(html, /id="settings-modal"/);
+
+    const i18nRes = await fetch(`${ctx.baseUrl}/i18n.js`);
+    assert.equal(i18nRes.status, 200);
+    assert.match(i18nRes.headers.get('content-type') ?? '', /javascript/);
 
     const assetsRes = await fetch(`${ctx.baseUrl}/chessAssets.js`);
     assert.equal(assetsRes.status, 200);

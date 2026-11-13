@@ -2,6 +2,12 @@ import { formatEvalScore, uciToMoveSquares } from './analysisHelper.js';
 import { createStockfishAnalyzer } from './stockfishClient.js';
 import { formatReviewMoveLabel, resolveReviewViewState } from './reviewHelper.js';
 import {
+  initI18n,
+  getLanguage,
+  setLanguage,
+  t,
+} from './i18n.js';
+import {
   applyOptimisticMove,
   canInteractWithBoard,
   canSendMatchChat,
@@ -141,6 +147,8 @@ const elements = {
   soundLabel: document.getElementById('sound-label'),
   navFullscreenBtn: document.getElementById('nav-fullscreen-btn'),
   fullscreenLabel: document.getElementById('fullscreen-label'),
+  navSettingsBtn: document.getElementById('nav-settings-btn'),
+  settingsLabel: document.getElementById('settings-label'),
   boardFullscreenBtn: document.getElementById('board-fullscreen-btn'),
   fullscreenExitBtn: document.getElementById('fullscreen-exit-btn'),
   topAvatar: document.getElementById('top-avatar'),
@@ -253,6 +261,11 @@ const elements = {
   evalGraph: document.getElementById('eval-graph'),
   analysisCounts: document.getElementById('analysis-counts'),
   analysisMoveNote: document.getElementById('analysis-move-note'),
+  settingsModal: document.getElementById('settings-modal'),
+  settingsCloseBtn: document.getElementById('settings-close-btn'),
+  settingsDoneBtn: document.getElementById('settings-done-btn'),
+  langViBtn: document.getElementById('lang-vi-btn'),
+  langEnBtn: document.getElementById('lang-en-btn'),
 };
 
 /**
@@ -456,38 +469,36 @@ function updateClockElements() {
  * @returns {{ headline: string, subtitle: string, score: string }} Display outcome details.
  */
 function describeGameOutcome(game) {
-  const reasonMap = {
-    checkmate: 'by checkmate',
-    timeout: 'on time',
-    resigned: 'by resignation',
-  };
+  const reasonText = t(`gameover.reason.${game.status}`);
+  const outcomeReason = reasonText !== `gameover.reason.${game.status}` ? reasonText : (DRAW_REASON_LABELS[game.status] ?? 'victory');
 
   if (game.mode === 'friend') {
     const viewerColor = getViewerColor();
     if (game.winner) {
-      const winnerName = game.players?.[game.winner]?.name ?? (game.winner === 'w' ? 'White' : 'Black');
+      const defaultWinner = game.winner === 'w' ? t('status.white') : t('status.black');
+      const winnerName = game.players?.[game.winner]?.name ?? defaultWinner;
       const headline = viewerColor
         ? game.winner === viewerColor
-          ? 'You Won!'
-          : `${winnerName} Won`
-        : `${winnerName} Won`;
+          ? t('gameover.youWon')
+          : t('gameover.winnerWon', { name: winnerName })
+        : t('gameover.winnerWon', { name: winnerName });
       return {
         headline,
-        subtitle: reasonMap[game.status] ?? 'victory',
+        subtitle: outcomeReason,
         score: game.winner === 'w' ? '1 - 0' : '0 - 1',
       };
     }
     return {
-      headline: 'Draw',
-      subtitle: DRAW_REASON_LABELS[game.status] ?? 'by draw',
+      headline: t('gameover.draw'),
+      subtitle: outcomeReason,
       score: '½ - ½',
     };
   }
 
   if (game.winner === game.playerColor) {
     return {
-      headline: 'You Won!',
-      subtitle: reasonMap[game.status] ?? 'victory',
+      headline: t('gameover.youWon'),
+      subtitle: outcomeReason,
       score: game.playerColor === 'w' ? '1 - 0' : '0 - 1',
     };
   }
@@ -495,15 +506,15 @@ function describeGameOutcome(game) {
   if (game.winner === game.aiColor) {
     const botName = game.bot?.name ?? 'Bot';
     return {
-      headline: `${botName} Won`,
-      subtitle: reasonMap[game.status] ?? 'victory',
+      headline: t('gameover.winnerWon', { name: botName }),
+      subtitle: outcomeReason,
       score: game.aiColor === 'w' ? '1 - 0' : '0 - 1',
     };
   }
 
   return {
-    headline: 'Draw',
-    subtitle: DRAW_REASON_LABELS[game.status] ?? 'by draw',
+    headline: t('gameover.draw'),
+    subtitle: outcomeReason,
     score: '½ - ½',
   };
 }
@@ -518,7 +529,9 @@ function describeGameOutcome(game) {
 function formatStatusBanner(game, view) {
   if (state.isPendingRequest) {
     const loadingText =
-      game.mode === 'friend' ? 'Syncing match...' : `${game.bot?.name ?? 'Bot'} is thinking...`;
+      game.mode === 'friend'
+        ? t('status.syncing')
+        : t('status.botThinking', { name: game.bot?.name ?? 'Bot' });
     return {
       text: loadingText,
       isCheck: false,
@@ -529,11 +542,16 @@ function formatStatusBanner(game, view) {
   if (view.isReviewing) {
     const moveLabel =
       view.effectivePly === 0
-        ? 'Starting Position'
+        ? t('status.startingPosition')
         : formatReviewMoveLabel(game.history, view.effectivePly);
-    const checkSuffix = view.inCheck ? ' (Check)' : '';
+    const checkSuffix = view.inCheck ? t('status.checkSuffix') : '';
     return {
-      text: `Reviewing ${moveLabel} (${view.effectivePly}/${view.totalPlies})${checkSuffix}`,
+      text: t('status.reviewing', {
+        label: moveLabel,
+        ply: view.effectivePly,
+        total: view.totalPlies,
+        check: checkSuffix,
+      }),
       isCheck: view.inCheck,
       isOver: false,
       isReview: true,
@@ -543,8 +561,8 @@ function formatStatusBanner(game, view) {
     const viewerColor = getViewerColor();
     return {
       text: viewerColor
-        ? 'Waiting for friend to join...'
-        : 'Open seat ready — click Join to play',
+        ? t('status.waitingFriend')
+        : t('status.openSeat'),
       isCheck: false,
       isOver: false,
       isReview: false,
@@ -560,17 +578,17 @@ function formatStatusBanner(game, view) {
     };
   }
 
-  const sideLabel = game.turn === 'w' ? 'White' : 'Black';
+  const sideLabel = game.turn === 'w' ? t('status.white') : t('status.black');
   if (game.mode === 'friend') {
     const viewerColor = getViewerColor();
     const activeName = game.players?.[game.turn]?.name ?? sideLabel;
     const turnText = !viewerColor
-      ? `Spectating • ${activeName}'s Turn (${sideLabel})`
+      ? t('status.spectatingTurn', { name: activeName, side: sideLabel })
       : game.turn === viewerColor
-        ? `Your Turn (${sideLabel})`
-        : `${activeName}'s Turn (${sideLabel})`;
+        ? t('status.yourTurn', { side: sideLabel })
+        : t('status.playerTurn', { name: activeName, side: sideLabel });
     return {
-      text: game.inCheck ? `Check! ${turnText}` : turnText,
+      text: game.inCheck ? `${t('status.checkPrefix')}${turnText}` : turnText,
       isCheck: game.inCheck,
       isOver: false,
       isReview: false,
@@ -579,11 +597,11 @@ function formatStatusBanner(game, view) {
 
   const turnText =
     game.turn === game.playerColor
-      ? `Your Turn (${sideLabel})`
-      : `${game.bot?.name ?? 'Bot'}'s Turn (${sideLabel})`;
+      ? t('status.yourTurn', { side: sideLabel })
+      : t('status.playerTurn', { name: game.bot?.name ?? 'Bot', side: sideLabel });
 
   return {
-    text: game.inCheck ? `Check! ${turnText}` : turnText,
+    text: game.inCheck ? `${t('status.checkPrefix')}${turnText}` : turnText,
     isCheck: game.inCheck,
     isOver: false,
     isReview: false,
@@ -626,9 +644,11 @@ function renderPlayerCards(view) {
       const seat = game.players?.[sideColor];
       const isSelf = viewerColor === sideColor;
       avatarEl.innerHTML = getAvatarSvg('player');
+      const sideText = sideColor === 'w' ? t('status.white') : t('status.black');
+      const waitingText = getLanguage() === 'vi' ? `Đang đợi (${sideText})...` : `Waiting (${sideText})...`;
       nameEl.textContent = seat?.joined
-        ? `${seat.name}${isSelf ? ' (You)' : ''}`
-        : `Waiting (${sideColor === 'w' ? 'White' : 'Black'})...`;
+        ? `${seat.name}${isSelf ? ` (${t('player.you')})` : ''}`
+        : waitingText;
       ratingEl.hidden = true;
       ratingEl.textContent = '';
     } else {
@@ -636,7 +656,7 @@ function renderPlayerCards(view) {
       const bot = game.bot ?? FALLBACK_BOTS[1];
 
       avatarEl.innerHTML = getAvatarSvg(isPlayer ? 'player' : bot.avatarId);
-      nameEl.textContent = isPlayer ? 'You' : bot.name;
+      nameEl.textContent = isPlayer ? t('player.you') : bot.name;
       if (isPlayer) {
         ratingEl.hidden = true;
         ratingEl.textContent = '';
@@ -816,13 +836,21 @@ function renderAnalysisPanel(view, activeAnalysis) {
   elements.analysisPanel.hidden = false;
   if (isRunning) {
     elements.analysisProgress.hidden = false;
-    elements.analysisProgress.textContent = `Analyzing ${state.analysisProgress.completed}/${state.analysisProgress.total}...`;
+    const progressPercent = Math.round((state.analysisProgress.completed / (state.analysisProgress.total || 1)) * 100);
+    elements.analysisProgress.textContent = t('analysis.analyzing', {
+      current: state.analysisProgress.completed,
+      total: state.analysisProgress.total,
+      percent: progressPercent,
+    });
     elements.analysisCancelBtn.hidden = false;
     elements.analysisAccuracyRow.hidden = true;
     elements.evalGraphWrap.hidden = true;
     elements.analysisCounts.hidden = true;
     elements.analysisMoveNote.hidden = false;
-    elements.analysisMoveNote.textContent = 'Running Stockfish WASM locally in your browser...';
+    elements.analysisMoveNote.textContent =
+      getLanguage() === 'vi'
+        ? 'Đang chạy Stockfish WASM trực tiếp trên trình duyệt của bạn...'
+        : 'Running Stockfish WASM locally in your browser...';
     return;
   }
 
@@ -882,7 +910,8 @@ function renderAnalysisPanel(view, activeAnalysis) {
     const chip = document.createElement('div');
     chip.className = 'analysis-count-chip';
     const labelSpan = document.createElement('span');
-    labelSpan.innerHTML = `<strong style="color:${info.color}">${info.symbol}</strong> ${info.label}`;
+    const translatedBadgeLabel = t(`analysis.class.${key}`) || info.label;
+    labelSpan.innerHTML = `<strong style="color:${info.color}">${info.symbol}</strong> ${translatedBadgeLabel}`;
     const valueSpan = document.createElement('strong');
     valueSpan.textContent = `${summary.counts.w[key]} / ${summary.counts.b[key]}`;
     chip.append(labelSpan, valueSpan);
@@ -891,7 +920,9 @@ function renderAnalysisPanel(view, activeAnalysis) {
 
   if (view.effectivePly === 0) {
     elements.analysisMoveNote.textContent =
-      'Starting position — select any move or click the graph to inspect evaluations.';
+      getLanguage() === 'vi'
+        ? 'Thế cờ ban đầu — hãy chọn nước đi bất kỳ hoặc bấm vào đồ thị để xem đánh giá.'
+        : 'Starting position — select any move or click the graph to inspect evaluations.';
     return;
   }
 
@@ -901,14 +932,17 @@ function renderAnalysisPanel(view, activeAnalysis) {
     return;
   }
   const badge = getClassificationBadgeInfo(moveAnalysis.classification);
+  const badgeLabel = t(`analysis.class.${moveAnalysis.classification}`) || badge.label;
   const label = formatReviewMoveLabel(state.game.history, view.effectivePly);
   const evalText = formatEvalScore(moveAnalysis.evalAfter);
   const bestSq = uciToMoveSquares(moveAnalysis.bestMoveUci);
+  const bestPrefix = getLanguage() === 'vi' ? ' • Tốt nhất là ' : ' • Best was ';
   const bestHint =
     bestSq && moveAnalysis.bestMoveUci !== moveAnalysis.playedUci
-      ? ` • Best was ${bestSq.from}→${bestSq.to}${bestSq.promotion ? `=${bestSq.promotion.toUpperCase()}` : ''}`
+      ? `${bestPrefix}${bestSq.from}→${bestSq.to}${bestSq.promotion ? `=${bestSq.promotion.toUpperCase()}` : ''}`
       : '';
-  elements.analysisMoveNote.textContent = `${label} is ${badge.label} (${evalText})${bestHint}`;
+  const isLabel = getLanguage() === 'vi' ? ': ' : ' is ';
+  elements.analysisMoveNote.textContent = `${label}${isLabel}${badgeLabel} (${evalText})${bestHint}`;
 }
 
 /**
@@ -1236,7 +1270,9 @@ function renderSetupOptions() {
   if (!isFriendMode && state.selectedColor === 'random') {
     state.selectedColor = 'w';
   }
-  elements.newGameBtn.textContent = isFriendMode ? 'Create Friend Link' : 'Play';
+  elements.newGameBtn.textContent = isFriendMode
+    ? (getLanguage() === 'vi' ? 'Tạo liên kết bạn bè' : 'Create Friend Link')
+    : t('setup.playBtn');
 
   elements.botList.innerHTML = '';
   for (const bot of state.bots) {
@@ -1258,7 +1294,9 @@ function renderSetupOptions() {
 
     const tagline = document.createElement('div');
     tagline.className = 'bot-card-tagline';
-    tagline.textContent = bot.tagline;
+    const botTaglineKey = `bot.${bot.id}.tagline`;
+    const translatedTagline = t(botTaglineKey);
+    tagline.textContent = translatedTagline !== botTaglineKey ? translatedTagline : bot.tagline;
 
     info.append(title, tagline);
     card.append(avatar, info);
@@ -1278,7 +1316,9 @@ function renderSetupOptions() {
     const pill = document.createElement('button');
     pill.type = 'button';
     pill.className = `time-pill${state.selectedTimeControl === tc.id ? ' is-selected' : ''}`;
-    pill.textContent = tc.label;
+    const tcKey = `tc.${tc.id}`;
+    const translatedTc = t(tcKey);
+    pill.textContent = translatedTc !== tcKey ? translatedTc : tc.label;
     pill.addEventListener('click', () => {
       state.selectedTimeControl = tc.id;
       renderSetupOptions();
@@ -1299,19 +1339,22 @@ function resolveIncomingOffer(game, viewerColor) {
     return null;
   }
   const opponentColor = viewerColor === 'w' ? 'b' : 'w';
-  const opponentName = game.players?.[opponentColor]?.name ?? 'Friend';
+  const opponentName = game.players?.[opponentColor]?.name ?? (getLanguage() === 'vi' ? 'Bạn bè' : 'Friend');
   if (game.status === 'playing' && game.pendingDrawBy === opponentColor) {
-    return { endpoint: 'draw', label: `${opponentName} offered a draw` };
+    return { endpoint: 'draw', label: t('friend.drawOffer', { name: opponentName }) };
   }
   if (game.status === 'playing' && game.pendingTakebackBy === opponentColor) {
-    return { endpoint: 'takeback', label: `${opponentName} requested a takeback` };
+    return { endpoint: 'takeback', label: t('friend.takebackOffer', { name: opponentName }) };
   }
   if (
     game.status !== 'playing' &&
     game.status !== 'waiting' &&
     game.pendingRematchBy === opponentColor
   ) {
-    return { endpoint: 'rematch', label: `${opponentName} wants a rematch` };
+    const rematchLabel = getLanguage() === 'vi'
+      ? `${opponentName} muốn đấu lại`
+      : `${opponentName} wants a rematch`;
+    return { endpoint: 'rematch', label: rematchLabel };
   }
   return null;
 }
@@ -1343,9 +1386,10 @@ function renderGameOverModal(game) {
   elements.gameOverBotAvatar.innerHTML = getAvatarSvg(
     game.mode === 'friend' ? 'player' : game.bot?.avatarId ?? 'elani'
   );
-  elements.modalNewGameBtn.textContent = game.mode === 'friend' ? 'New Game' : 'New Bot';
+  elements.modalNewGameBtn.textContent = game.mode === 'friend' ? t('tab.setup') : t('modal.gameover.newBot');
   elements.modalReviewBtn.hidden = !canReviewGame(game);
   elements.modalReviewBtn.disabled = Boolean(state.analysisProgress);
+  elements.modalReviewBtn.textContent = t('modal.gameover.review');
 
   if (game.mode === 'friend') {
     if (!viewerColor) {
@@ -1357,15 +1401,15 @@ function renderGameOverModal(game) {
       const sentByOpp = game.pendingRematchBy === opponentColor;
       elements.modalRematchBtn.disabled = sentByMe;
       elements.modalRematchBtn.textContent = sentByMe
-        ? 'Waiting...'
+        ? (getLanguage() === 'vi' ? 'Đang đợi...' : 'Waiting...')
         : sentByOpp
-          ? 'Accept Rematch'
-          : 'Rematch';
+          ? (getLanguage() === 'vi' ? 'Chấp nhận đấu lại' : 'Accept Rematch')
+          : t('modal.gameover.rematch');
     }
   } else {
     elements.modalRematchBtn.hidden = false;
     elements.modalRematchBtn.disabled = false;
-    elements.modalRematchBtn.textContent = 'Rematch';
+    elements.modalRematchBtn.textContent = t('modal.gameover.rematch');
   }
 
   elements.gameOverModal.hidden = false;
@@ -1424,7 +1468,9 @@ function renderApp() {
   elements.returnLiveBtn.hidden = !view.isReviewing || state.isPendingRequest;
 
   elements.botTaglineBox.hidden = isFriendMode;
-  elements.botTagline.textContent = game.bot?.tagline ?? 'Good luck!';
+  const botTaglineKey = game.bot ? `bot.${game.bot.id}.tagline` : 'chat.quickGoodLuck';
+  const translatedBotTagline = t(botTaglineKey);
+  elements.botTagline.textContent = translatedBotTagline !== botTaglineKey ? translatedBotTagline : (game.bot?.tagline ?? 'Good luck!');
 
   // Invite and Join cards only appear in friend rooms while waiting for the second player.
   const showInvite = isFriendMode && game.status === 'waiting' && Boolean(viewerColor);
@@ -1435,8 +1481,9 @@ function renderApp() {
   }
   elements.joinMatchBox.hidden = !showJoin;
   if (showJoin) {
-    const openSide = game.players?.w?.joined ? 'Black' : 'White';
-    elements.joinMatchLabel.textContent = `Join match as ${openSide}`;
+    const openSide = game.players?.w?.joined ? t('status.black') : t('status.white');
+    elements.joinMatchLabel.textContent =
+      getLanguage() === 'vi' ? `Tham gia ván đấu với quân ${openSide}` : `Join match as ${openSide}`;
     elements.joinMatchBtn.disabled = state.isPendingRequest;
   }
 
@@ -1541,7 +1588,9 @@ function openPromotionModal(from, to, choices) {
 
     const label = document.createElement('span');
     label.className = 'promotion-label';
-    label.textContent = PROMOTION_LABELS[pieceType] ?? pieceType;
+    const pieceKeyMap = { q: 'queen', r: 'rook', b: 'bishop', n: 'knight' };
+    const pieceKey = pieceKeyMap[pieceType];
+    label.textContent = pieceKey ? t(`modal.promotion.${pieceKey}`) : (PROMOTION_LABELS[pieceType] ?? pieceType);
 
     btn.append(svgWrap, label);
     btn.addEventListener('click', () => {
@@ -1565,6 +1614,95 @@ function openPromotionModal(from, to, choices) {
 function closePromotionModal() {
   state.pendingPromotion = null;
   elements.promotionModal.hidden = true;
+}
+
+/**
+ * Opens the application Settings modal dialog.
+ *
+ * @returns {void}
+ */
+function openSettingsModal() {
+  if (elements.settingsModal) {
+    elements.settingsModal.hidden = false;
+  }
+}
+
+/**
+ * Closes the application Settings modal dialog.
+ *
+ * @returns {void}
+ */
+function closeSettingsModal() {
+  if (elements.settingsModal) {
+    elements.settingsModal.hidden = true;
+  }
+}
+
+/**
+ * Applies the specified language to all translatable DOM elements and refreshes dynamic views.
+ *
+ * @param {'vi' | 'en'} lang - Language code to activate and apply.
+ * @returns {void}
+ */
+function applyLanguage(lang) {
+  document.documentElement.lang = lang;
+
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    const key = el.getAttribute('data-i18n');
+    if (key) {
+      el.textContent = t(key);
+    }
+  });
+
+  document.querySelectorAll('[data-i18n-title]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-title');
+    if (key) {
+      el.setAttribute('title', t(key));
+    }
+  });
+
+  document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    if (key) {
+      el.setAttribute('placeholder', t(key));
+    }
+  });
+
+  document.querySelectorAll('[data-i18n-aria]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-aria');
+    if (key) {
+      el.setAttribute('aria-label', t(key));
+    }
+  });
+
+  document.querySelectorAll('[data-chat-key]').forEach((btn) => {
+    const key = btn.getAttribute('data-chat-key');
+    if (key) {
+      const translated = t(key);
+      btn.setAttribute('data-chat-text', translated);
+    }
+  });
+
+  if (elements.soundLabel) {
+    elements.soundLabel.textContent = state.isMuted ? t('nav.soundOff') : t('nav.soundOn');
+  }
+
+  const fsMeta = resolveFullscreenButtonMetadata(state.isFullscreen, lang);
+  if (elements.fullscreenLabel) {
+    elements.fullscreenLabel.textContent = fsMeta.label;
+  }
+  if (elements.navFullscreenBtn) {
+    elements.navFullscreenBtn.title = fsMeta.title;
+  }
+  if (elements.boardFullscreenBtn) {
+    elements.boardFullscreenBtn.title = fsMeta.title;
+  }
+
+  elements.langViBtn?.classList.toggle('is-selected', lang === 'vi');
+  elements.langEnBtn?.classList.toggle('is-selected', lang === 'en');
+
+  renderSetupOptions();
+  renderApp();
 }
 
 /**
@@ -2744,10 +2882,10 @@ async function copyInviteLink() {
       elements.inviteLinkInput.select();
       document.execCommand?.('copy');
     }
-    elements.copyInviteBtn.textContent = 'Copied!';
+    elements.copyInviteBtn.textContent = t('friend.copied');
     setTimeout(() => {
       if (elements.copyInviteBtn) {
-        elements.copyInviteBtn.textContent = 'Copy';
+        elements.copyInviteBtn.textContent = t('friend.copy');
       }
     }, 1500);
   } catch {
@@ -2962,7 +3100,7 @@ function toggleBoardFlip() {
 function toggleSoundMute() {
   state.isMuted = !state.isMuted;
   elements.navSoundBtn.setAttribute('aria-pressed', String(!state.isMuted));
-  elements.soundLabel.textContent = state.isMuted ? 'Muted' : 'Sound On';
+  elements.soundLabel.textContent = state.isMuted ? t('nav.soundOff') : t('nav.soundOn');
 }
 
 /**
@@ -2973,7 +3111,7 @@ function toggleSoundMute() {
  */
 function setMobileNavCollapsed(isCollapsed) {
   state.isMobileNavCollapsed = Boolean(isCollapsed);
-  const metadata = resolveMobileNavToggleMetadata(state.isMobileNavCollapsed);
+  const metadata = resolveMobileNavToggleMetadata(state.isMobileNavCollapsed, getLanguage());
 
   // Toggle collapsed class on navigation rail to trigger compact mobile header CSS rules.
   if (elements.navRail) {
@@ -3012,7 +3150,7 @@ function autoCollapseMobileNavOnAction() {
  */
 function syncFullscreenUi(isFullscreen) {
   state.isFullscreen = Boolean(isFullscreen);
-  const metadata = resolveFullscreenButtonMetadata(state.isFullscreen);
+  const metadata = resolveFullscreenButtonMetadata(state.isFullscreen, getLanguage());
 
   if (elements.appLayout) {
     elements.appLayout.classList.toggle('is-fullscreen', state.isFullscreen);
@@ -3223,6 +3361,8 @@ function setupMobileChatFabDrag() {
  * @returns {Promise<void>}
  */
 async function bootstrapApp() {
+  initI18n();
+  applyLanguage(getLanguage());
   setMobileNavCollapsed(true);
   setupMobileChatFabDrag();
   try {
@@ -3299,6 +3439,29 @@ elements.navSoundBtn.addEventListener('click', () => {
 elements.navFullscreenBtn?.addEventListener('click', () => {
   autoCollapseMobileNavOnAction();
   toggleFullscreenMode();
+});
+elements.navSettingsBtn?.addEventListener('click', () => {
+  autoCollapseMobileNavOnAction();
+  openSettingsModal();
+});
+elements.settingsCloseBtn?.addEventListener('click', () => {
+  closeSettingsModal();
+});
+elements.settingsDoneBtn?.addEventListener('click', () => {
+  closeSettingsModal();
+});
+elements.settingsModal?.addEventListener('click', (event) => {
+  if (event.target === elements.settingsModal) {
+    closeSettingsModal();
+  }
+});
+elements.langViBtn?.addEventListener('click', () => {
+  setLanguage('vi');
+  applyLanguage('vi');
+});
+elements.langEnBtn?.addEventListener('click', () => {
+  setLanguage('en');
+  applyLanguage('en');
 });
 
 document.addEventListener('click', (event) => {

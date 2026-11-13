@@ -369,6 +369,7 @@ export function applyOptimisticMove(game, { from, to, promotion } = {}) {
  * Resolves localized labels, icons, and accessible attributes for fullscreen toggle buttons.
  *
  * @param {boolean} isFullscreen - Current fullscreen active state.
+ * @param {string} [lang='en'] - Active language code ('vi' or 'en').
  * @returns {{
  *   label: string,
  *   title: string,
@@ -376,18 +377,19 @@ export function applyOptimisticMove(game, { from, to, promotion } = {}) {
  *   ariaPressed: boolean,
  * }} Button presentation and accessibility metadata.
  */
-export function resolveFullscreenButtonMetadata(isFullscreen) {
+export function resolveFullscreenButtonMetadata(isFullscreen, lang = 'en') {
+  const isVi = lang === 'vi';
   if (isFullscreen) {
     return {
-      label: 'Exit Full Screen',
-      title: 'Exit Full Screen (Esc)',
+      label: isVi ? 'Thoát toàn màn hình' : 'Exit Full Screen',
+      title: isVi ? 'Thoát toàn màn hình (Esc)' : 'Exit Full Screen (Esc)',
       glyph: '✕',
       ariaPressed: true,
     };
   }
   return {
-    label: 'Full Screen',
-    title: 'Enter Full Screen (F)',
+    label: isVi ? 'Toàn màn hình' : 'Full Screen',
+    title: isVi ? 'Bật toàn màn hình (F)' : 'Enter Full Screen (F)',
     glyph: '⛶',
     ariaPressed: false,
   };
@@ -514,6 +516,7 @@ export function clampBubblePosition(params) {
  * Resolves presentation labels, glyphs, titles, and ARIA attributes for mobile navigation menu toggle.
  *
  * @param {boolean} isCollapsed - Whether the mobile navigation menu is currently collapsed.
+ * @param {string} [lang='en'] - Active language code ('vi' or 'en').
  * @returns {{
  *   isCollapsed: boolean,
  *   glyph: string,
@@ -522,14 +525,15 @@ export function clampBubblePosition(params) {
  *   ariaExpanded: boolean,
  * }} Metadata for rendering the mobile navigation toggle button.
  */
-export function resolveMobileNavToggleMetadata(isCollapsed) {
+export function resolveMobileNavToggleMetadata(isCollapsed, lang = 'en') {
   const collapsed = Boolean(isCollapsed);
+  const isVi = lang === 'vi';
   if (collapsed) {
     return {
       isCollapsed: true,
       glyph: '☰',
       label: 'Menu',
-      title: 'Expand Menu',
+      title: isVi ? 'Mở rộng menu' : 'Expand Menu',
       ariaExpanded: false,
     };
   }
@@ -537,8 +541,8 @@ export function resolveMobileNavToggleMetadata(isCollapsed) {
   return {
     isCollapsed: false,
     glyph: '✕',
-    label: 'Close',
-    title: 'Collapse Menu',
+    label: isVi ? 'Đóng' : 'Close',
+    title: isVi ? 'Thu gọn menu' : 'Collapse Menu',
     ariaExpanded: true,
   };
 }

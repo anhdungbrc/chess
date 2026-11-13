@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Play Chess vs Bots — Chess.com Style</title>
+    <title data-i18n="app.title">Chơi Cờ Vua với Máy — Phong cách Chess.com</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
@@ -29,7 +29,8 @@
             aria-label="Toggle navigation menu"
             aria-controls="rail-nav"
             aria-expanded="false"
-            title="Expand Menu"
+            title="Mở rộng menu"
+            data-i18n-title="nav.toggleExpand"
           >
             <span class="nav-toggle-glyph" aria-hidden="true">☰</span>
           </button>
@@ -38,29 +39,42 @@
         <nav id="rail-nav" class="rail-nav">
           <button id="nav-play-btn" type="button" class="rail-btn is-active">
             <span class="rail-glyph" aria-hidden="true">♟</span>
-            <span class="rail-label">Play</span>
+            <span class="rail-label" data-i18n="nav.play">Chơi</span>
           </button>
           <button id="nav-bots-btn" type="button" class="rail-btn">
-            <span class="rail-glyph" aria-hidden="true">⚙</span>
-            <span class="rail-label">Bots</span>
+            <span class="rail-glyph" aria-hidden="true">🤖</span>
+            <span class="rail-label" data-i18n="nav.bots">Chọn Bot</span>
           </button>
           <button id="nav-flip-btn" type="button" class="rail-btn">
             <span class="rail-glyph" aria-hidden="true">⇅</span>
-            <span class="rail-label">Flip Board</span>
+            <span class="rail-label" data-i18n="nav.flip">Xoay bàn cờ</span>
           </button>
           <button id="nav-sound-btn" type="button" class="rail-btn" aria-pressed="true">
             <span class="rail-glyph" aria-hidden="true">🔊</span>
-            <span class="rail-label" id="sound-label">Sound On</span>
+            <span class="rail-label" id="sound-label" data-i18n="nav.soundOn">Bật âm thanh</span>
           </button>
           <button
             id="nav-fullscreen-btn"
             type="button"
             class="rail-btn"
             aria-pressed="false"
-            title="Enter Full Screen (F)"
+            title="Bật toàn màn hình (F)"
+            data-i18n-title="nav.fullscreenTitle"
           >
             <span class="rail-glyph" aria-hidden="true">⛶</span>
-            <span class="rail-label" id="fullscreen-label">Full Screen</span>
+            <span class="rail-label" id="fullscreen-label" data-i18n="nav.fullscreen">Toàn màn hình</span>
+          </button>
+          <button
+            id="nav-settings-btn"
+            type="button"
+            class="rail-btn"
+            aria-label="Cài đặt"
+            title="Cài đặt"
+            data-i18n-title="nav.settings"
+            data-i18n-aria="nav.settings"
+          >
+            <span class="rail-glyph" aria-hidden="true">⚙</span>
+            <span class="rail-label" id="settings-label" data-i18n="nav.settings">Cài đặt</span>
           </button>
         </nav>
       </aside>
@@ -70,8 +84,10 @@
           id="fullscreen-exit-btn"
           type="button"
           class="fullscreen-exit-btn"
-          title="Exit Full Screen (Esc)"
-          aria-label="Exit Full Screen"
+          title="Thoát toàn màn hình (Esc)"
+          aria-label="Thoát toàn màn hình"
+          data-i18n-title="nav.exitFullscreenTitle"
+          data-i18n-aria="nav.exitFullscreen"
           hidden
         >
           ✕
@@ -84,7 +100,7 @@
             </div>
             <div class="player-meta">
               <div class="player-name-row">
-                <span id="top-name" class="player-name">Opponent</span>
+                <span id="top-name" class="player-name" data-i18n="player.opponent">Đối thủ</span>
                 <span id="top-rating" class="player-rating" hidden></span>
               </div>
               <div class="captures-row">
@@ -99,8 +115,10 @@
               id="board-fullscreen-btn"
               type="button"
               class="board-icon-btn board-fullscreen-btn"
-              title="Enter Full Screen (F)"
-              aria-label="Toggle Full Screen"
+              title="Bật toàn màn hình (F)"
+              aria-label="Bật toàn màn hình"
+              data-i18n-title="nav.fullscreenTitle"
+              data-i18n-aria="nav.fullscreen"
             >
               ⛶
             </button>
@@ -117,7 +135,8 @@
             id="chess-board"
             class="chess-board"
             role="grid"
-            aria-label="8x8 Chess Board"
+            aria-label="Bàn cờ 8x8"
+            data-i18n-aria="board.label"
           ></div>
           <svg
             id="board-arrows"
@@ -136,10 +155,10 @@
             hidden
           >
             <div class="board-modal-card promotion-card">
-              <h2 id="promotion-title">Promote Pawn</h2>
+              <h2 id="promotion-title" data-i18n="modal.promotion.title">Phong cấp tốt</h2>
               <div id="promotion-choices" class="promotion-choices"></div>
-              <button id="promotion-cancel-btn" type="button" class="btn btn-dark">
-                Cancel
+              <button id="promotion-cancel-btn" type="button" class="btn btn-dark" data-i18n="modal.promotion.cancel">
+                Hủy
               </button>
             </div>
           </div>
@@ -157,12 +176,13 @@
                 id="game-over-close-btn"
                 type="button"
                 class="modal-close-btn"
-                aria-label="Close game result"
+                aria-label="Đóng kết quả ván đấu"
+                data-i18n-aria="modal.gameover.close"
               >
                 ×
               </button>
               <div class="game-over-header">
-                <h2 id="game-over-title">Game Over</h2>
+                <h2 id="game-over-title" data-i18n="modal.gameover.title">Ván đấu kết thúc</h2>
                 <p id="game-over-subtitle" class="game-over-subtitle"></p>
               </div>
               <div class="game-over-versus">
@@ -171,14 +191,66 @@
                 <div id="game-over-bot-avatar" class="versus-avatar"></div>
               </div>
               <div class="game-over-actions">
-                <button id="modal-review-btn" type="button" class="btn btn-accent btn-full">
-                  Game Review
+                <button id="modal-review-btn" type="button" class="btn btn-accent btn-full" data-i18n="modal.gameover.review">
+                  Xem lại ván đấu
                 </button>
-                <button id="modal-rematch-btn" type="button" class="btn btn-green">
-                  Rematch
+                <button id="modal-rematch-btn" type="button" class="btn btn-green" data-i18n="modal.gameover.rematch">
+                  Đấu lại
                 </button>
-                <button id="modal-new-game-btn" type="button" class="btn btn-dark">
-                  New Bot
+                <button id="modal-new-game-btn" type="button" class="btn btn-dark" data-i18n="modal.gameover.newBot">
+                  Chọn Bot mới
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div
+            id="settings-modal"
+            class="board-modal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-title"
+            hidden
+          >
+            <div class="board-modal-card settings-card">
+              <button
+                id="settings-close-btn"
+                type="button"
+                class="modal-close-btn"
+                aria-label="Đóng"
+                data-i18n-aria="modal.settings.close"
+              >
+                ×
+              </button>
+              <div class="settings-header">
+                <h2 id="settings-title" data-i18n="modal.settings.title">Cài đặt</h2>
+              </div>
+              <div class="settings-body">
+                <div class="settings-section">
+                  <label class="settings-label" data-i18n="modal.settings.language">Ngôn ngữ</label>
+                  <div class="settings-lang-group" role="radiogroup" aria-label="Ngôn ngữ">
+                    <button
+                      id="lang-vi-btn"
+                      type="button"
+                      class="settings-lang-btn is-selected"
+                      data-lang="vi"
+                    >
+                      <span>🇻🇳 Tiếng Việt</span>
+                    </button>
+                    <button
+                      id="lang-en-btn"
+                      type="button"
+                      class="settings-lang-btn"
+                      data-lang="en"
+                    >
+                      <span>🇬🇧 English</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="settings-actions">
+                <button id="settings-done-btn" type="button" class="btn btn-green btn-full" data-i18n="modal.settings.close">
+                  Đóng
                 </button>
               </div>
             </div>
@@ -194,7 +266,7 @@
             </div>
             <div class="player-meta">
               <div class="player-name-row">
-                <span id="bottom-name" class="player-name">You</span>
+                <span id="bottom-name" class="player-name" data-i18n="player.you">Bạn</span>
                 <span id="bottom-rating" class="player-rating" hidden></span>
               </div>
               <div class="captures-row">
@@ -217,8 +289,9 @@
             role="tab"
             aria-selected="true"
             class="panel-tab is-active"
+            data-i18n="tab.play"
           >
-            Play
+            Chơi
           </button>
           <button
             id="tab-setup-btn"
@@ -226,32 +299,34 @@
             role="tab"
             aria-selected="false"
             class="panel-tab"
+            data-i18n="tab.setup"
           >
-            New Game
+            Ván mới
           </button>
         </div>
 
         <section id="panel-play-view" class="panel-body">
           <div class="status-strip">
-            <p id="status-banner" class="status-banner" aria-live="polite">
-              Starting game...
+            <p id="status-banner" class="status-banner" aria-live="polite" data-i18n="status.starting">
+              Đang bắt đầu ván đấu...
             </p>
             <button
               id="return-live-btn"
               type="button"
               class="btn btn-compact btn-accent"
+              data-i18n="status.live"
               hidden
             >
-              Live
+              Trực tiếp
             </button>
           </div>
 
           <div id="bot-tagline-box" class="bot-chat-bubble">
-            <span id="bot-tagline">Ready for a match!</span>
+            <span id="bot-tagline" data-i18n="status.botReady">Sẵn sàng thi đấu!</span>
           </div>
 
           <div id="invite-link-box" class="friend-card" hidden>
-            <span class="friend-card-label">Invite a friend (no login required)</span>
+            <span class="friend-card-label" data-i18n="friend.inviteLabel">Mời bạn bè (không cần đăng nhập)</span>
             <div class="invite-row">
               <input
                 id="invite-link-input"
@@ -260,25 +335,26 @@
                 readonly
                 aria-label="Invite link"
               />
-              <button id="copy-invite-btn" type="button" class="btn btn-green btn-compact">
-                Copy
+              <button id="copy-invite-btn" type="button" class="btn btn-green btn-compact" data-i18n="friend.copy">
+                Sao chép
               </button>
             </div>
           </div>
 
           <div id="join-match-box" class="friend-card" hidden>
-            <span id="join-match-label" class="friend-card-label">Join this match</span>
+            <span id="join-match-label" class="friend-card-label" data-i18n="friend.joinLabel">Tham gia ván đấu này</span>
             <div class="invite-row">
               <input
                 id="join-name-input"
                 type="text"
                 class="text-input"
                 maxlength="24"
-                placeholder="Your name (optional)"
+                placeholder="Tên của bạn (không bắt buộc)"
                 aria-label="Your display name"
+                data-i18n-placeholder="friend.joinPlaceholder"
               />
-              <button id="join-match-btn" type="button" class="btn btn-green btn-compact">
-                Join
+              <button id="join-match-btn" type="button" class="btn btn-green btn-compact" data-i18n="friend.joinBtn">
+                Tham gia
               </button>
             </div>
           </div>
@@ -286,35 +362,36 @@
           <div id="friend-offer-banner" class="offer-banner" hidden>
             <span id="friend-offer-text" class="offer-text"></span>
             <div class="offer-actions">
-              <button id="offer-accept-btn" type="button" class="btn btn-green btn-compact">
-                Accept
+              <button id="offer-accept-btn" type="button" class="btn btn-green btn-compact" data-i18n="friend.accept">
+                Đồng ý
               </button>
-              <button id="offer-decline-btn" type="button" class="btn btn-dark btn-compact">
-                Decline
+              <button id="offer-decline-btn" type="button" class="btn btn-dark btn-compact" data-i18n="friend.decline">
+                Từ chối
               </button>
             </div>
           </div>
 
           <div id="analysis-panel" class="analysis-panel" hidden>
             <div class="analysis-header">
-              <span class="analysis-title">Game Review</span>
+              <span class="analysis-title" data-i18n="analysis.title">Đánh giá ván cờ</span>
               <span id="analysis-progress" class="analysis-progress" hidden></span>
               <button
                 id="analysis-cancel-btn"
                 type="button"
                 class="btn btn-dark btn-compact"
+                data-i18n="analysis.cancel"
                 hidden
               >
-                Cancel
+                Hủy
               </button>
             </div>
             <div id="analysis-accuracy-row" class="accuracy-cards" hidden>
               <div class="accuracy-card accuracy-white">
-                <span class="accuracy-side">White</span>
+                <span class="accuracy-side" data-i18n="analysis.white">Trắng</span>
                 <span id="analysis-white-acc" class="accuracy-value">--</span>
               </div>
               <div class="accuracy-card accuracy-black">
-                <span class="accuracy-side">Black</span>
+                <span class="accuracy-side" data-i18n="analysis.black">Đen</span>
                 <span id="analysis-black-acc" class="accuracy-value">--</span>
               </div>
             </div>
@@ -339,8 +416,9 @@
               role="tab"
               aria-selected="true"
               class="play-subtab is-active"
+              data-i18n="subtab.moves"
             >
-              Moves
+              Nước đi
             </button>
             <button
               id="subtab-chat-btn"
@@ -349,21 +427,23 @@
               aria-selected="false"
               class="play-subtab"
             >
-              <span>Chat</span>
+              <span data-i18n="subtab.chat">Trò chuyện</span>
               <span id="chat-unread-badge" class="chat-unread-badge" hidden>0</span>
             </button>
           </div>
 
           <div id="moves-section" class="moves-section">
             <div class="moves-toolbar">
-              <span class="moves-label">Moves</span>
+              <span class="moves-label" data-i18n="moves.label">Nước đi</span>
               <div class="history-controls" role="group" aria-label="Move navigation">
                 <button
                   id="review-first-btn"
                   type="button"
                   class="btn-icon"
-                  title="First move"
-                  aria-label="First move"
+                  title="Nước đầu tiên"
+                  aria-label="Nước đầu tiên"
+                  data-i18n-title="moves.first"
+                  data-i18n-aria="moves.first"
                   disabled
                 >
                   |&lt;
@@ -372,8 +452,10 @@
                   id="review-prev-btn"
                   type="button"
                   class="btn-icon"
-                  title="Previous move (Left Arrow)"
-                  aria-label="Previous move"
+                  title="Nước trước (Mũi tên trái)"
+                  aria-label="Nước trước (Mũi tên trái)"
+                  data-i18n-title="moves.prev"
+                  data-i18n-aria="moves.prev"
                   disabled
                 >
                   &lt;
@@ -382,8 +464,10 @@
                   id="review-next-btn"
                   type="button"
                   class="btn-icon"
-                  title="Next move (Right Arrow)"
-                  aria-label="Next move"
+                  title="Nước sau (Mũi tên phải)"
+                  aria-label="Nước sau (Mũi tên phải)"
+                  data-i18n-title="moves.next"
+                  data-i18n-aria="moves.next"
                   disabled
                 >
                   &gt;
@@ -392,8 +476,10 @@
                   id="review-live-btn"
                   type="button"
                   class="btn-icon"
-                  title="Latest move"
-                  aria-label="Latest move"
+                  title="Nước mới nhất"
+                  aria-label="Nước mới nhất"
+                  data-i18n-title="moves.live"
+                  data-i18n-aria="moves.live"
                   disabled
                 >
                   &gt;|
@@ -406,10 +492,10 @@
           <div id="chat-section" class="chat-section" hidden>
             <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
             <div id="chat-quick-bar" class="chat-quick-bar" aria-label="Quick chat replies">
-              <button type="button" class="chat-quick-btn" data-chat-text="Good luck!">Good luck!</button>
-              <button type="button" class="chat-quick-btn" data-chat-text="Well played!">Well played!</button>
-              <button type="button" class="chat-quick-btn" data-chat-text="Good game!">Good game!</button>
-              <button type="button" class="chat-quick-btn" data-chat-text="Thanks!">Thanks!</button>
+              <button type="button" class="chat-quick-btn" data-chat-text="Chúc may mắn!" data-chat-key="chat.quickGoodLuck" data-i18n="chat.quickGoodLuck">Chúc may mắn!</button>
+              <button type="button" class="chat-quick-btn" data-chat-text="Chơi hay lắm!" data-chat-key="chat.quickWellPlayed" data-i18n="chat.quickWellPlayed">Chơi hay lắm!</button>
+              <button type="button" class="chat-quick-btn" data-chat-text="Ván đấu rất hay!" data-chat-key="chat.quickGoodGame" data-i18n="chat.quickGoodGame">Ván đấu rất hay!</button>
+              <button type="button" class="chat-quick-btn" data-chat-text="Cảm ơn!" data-chat-key="chat.quickThanks" data-i18n="chat.quickThanks">Cảm ơn!</button>
               <button type="button" class="chat-quick-btn" data-chat-text="👋" aria-label="Wave">👋</button>
               <button type="button" class="chat-quick-btn" data-chat-text="🤝" aria-label="Handshake">🤝</button>
               <button type="button" class="chat-quick-btn" data-chat-text="👏" aria-label="Clap">👏</button>
@@ -421,72 +507,74 @@
                 class="text-input"
                 maxlength="200"
                 autocomplete="off"
-                placeholder="Send a message..."
+                placeholder="Nhập tin nhắn..."
                 aria-label="Chat message"
+                data-i18n-placeholder="chat.placeholder"
               />
-              <button id="chat-send-btn" type="submit" class="btn btn-green btn-compact">
-                Send
+              <button id="chat-send-btn" type="submit" class="btn btn-green btn-compact" data-i18n="chat.send">
+                Gửi
               </button>
             </form>
-            <p id="chat-readonly-note" class="chat-readonly-note" hidden>
-              Spectators can view chat only.
+            <p id="chat-readonly-note" class="chat-readonly-note" data-i18n="chat.readonly" hidden>
+              Khán giả chỉ có thể xem trò chuyện.
             </p>
           </div>
 
           <div class="match-actions">
-            <button id="review-analyze-btn" type="button" class="btn btn-accent btn-full" hidden>
-              Game Review
+            <button id="review-analyze-btn" type="button" class="btn btn-accent btn-full" data-i18n="action.review" hidden>
+              Xem lại ván đấu
             </button>
-            <button id="flip-btn" type="button" class="btn btn-dark" title="Flip board">
-              Flip
+            <button id="flip-btn" type="button" class="btn btn-dark" title="Xoay bàn cờ" data-i18n="action.flip" data-i18n-title="nav.flip">
+              Xoay
             </button>
-            <button id="undo-btn" type="button" class="btn btn-dark" disabled>
-              Takeback
+            <button id="undo-btn" type="button" class="btn btn-dark" data-i18n="action.takeback" disabled>
+              Đi lại
             </button>
-            <button id="draw-btn" type="button" class="btn btn-dark" hidden disabled>
-              Draw
+            <button id="draw-btn" type="button" class="btn btn-dark" data-i18n="action.draw" hidden disabled>
+              Xin hòa
             </button>
-            <button id="resign-btn" type="button" class="btn btn-dark" disabled>
-              Resign
+            <button id="resign-btn" type="button" class="btn btn-dark" data-i18n="action.resign" disabled>
+              Đầu hàng
             </button>
-            <button id="rematch-btn" type="button" class="btn btn-green">
-              Rematch
+            <button id="rematch-btn" type="button" class="btn btn-green" data-i18n="action.rematch">
+              Đấu lại
             </button>
           </div>
         </section>
 
         <section id="panel-setup-view" class="panel-body" hidden>
           <div class="setup-section">
-            <h2 class="setup-heading">Game Mode</h2>
+            <h2 class="setup-heading" data-i18n="setup.gameMode">Chế độ chơi</h2>
             <div class="mode-picker" role="radiogroup" aria-label="Game mode">
               <button id="mode-bot-btn" type="button" class="color-option is-selected">
-                <span>vs Bot</span>
+                <span data-i18n="setup.vsBot">Đấu với Bot</span>
               </button>
               <button id="mode-friend-btn" type="button" class="color-option">
-                <span>vs Friend</span>
+                <span data-i18n="setup.vsFriend">Đấu với Bạn</span>
               </button>
             </div>
           </div>
 
           <div id="bot-setup-section" class="setup-section">
-            <h2 class="setup-heading">Choose Bot</h2>
+            <h2 class="setup-heading" data-i18n="setup.chooseBot">Chọn Bot</h2>
             <div id="bot-list" class="bot-list" role="radiogroup" aria-label="Bot opponents"></div>
           </div>
 
           <div id="friend-setup-section" class="setup-section" hidden>
-            <h2 class="setup-heading">Your Name</h2>
+            <h2 class="setup-heading" data-i18n="setup.yourName">Tên của bạn</h2>
             <input
               id="friend-name-input"
               type="text"
               class="text-input"
               maxlength="24"
-              placeholder="Your name (optional)"
+              placeholder="Tên của bạn (không bắt buộc)"
               aria-label="Host display name"
+              data-i18n-placeholder="setup.namePlaceholder"
             />
           </div>
 
           <div class="setup-section">
-            <h2 class="setup-heading">Play As</h2>
+            <h2 class="setup-heading" data-i18n="setup.playAs">Chọn quân</h2>
             <div id="color-picker" class="color-picker" role="radiogroup" aria-label="Piece color">
               <button
                 id="color-white-btn"
@@ -495,7 +583,7 @@
                 data-color="w"
               >
                 <span class="color-swatch swatch-white" aria-hidden="true">♔</span>
-                <span>White</span>
+                <span data-i18n="setup.white">Trắng</span>
               </button>
               <button
                 id="color-black-btn"
@@ -504,7 +592,7 @@
                 data-color="b"
               >
                 <span class="color-swatch swatch-black" aria-hidden="true">♚</span>
-                <span>Black</span>
+                <span data-i18n="setup.black">Đen</span>
               </button>
               <button
                 id="color-random-btn"
@@ -514,13 +602,13 @@
                 hidden
               >
                 <span class="color-swatch" aria-hidden="true">🎲</span>
-                <span>Random</span>
+                <span data-i18n="setup.random">Ngẫu nhiên</span>
               </button>
             </div>
           </div>
 
           <div class="setup-section">
-            <h2 class="setup-heading">Time Control</h2>
+            <h2 class="setup-heading" data-i18n="setup.timeControl">Thời gian ván đấu</h2>
             <div
               id="time-control-list"
               class="time-grid"
@@ -529,8 +617,8 @@
             ></div>
           </div>
 
-          <button id="new-game-btn" type="button" class="btn btn-green btn-play-cta">
-            Play
+          <button id="new-game-btn" type="button" class="btn btn-green btn-play-cta" data-i18n="setup.playBtn">
+            Bắt đầu chơi
           </button>
         </section>
       </aside>
@@ -542,9 +630,11 @@
         id="mobile-chat-fab"
         type="button"
         class="mobile-chat-fab"
-        aria-label="Open match chat"
+        aria-label="Mở trò chuyện"
         aria-expanded="false"
-        title="Open match chat"
+        title="Mở trò chuyện"
+        data-i18n-title="chat.openChat"
+        data-i18n-aria="chat.openChat"
         hidden
       >
         <span class="mobile-chat-fab-icon" aria-hidden="true">
@@ -559,21 +649,24 @@
         id="mobile-chat-popup"
         class="mobile-chat-popup"
         role="dialog"
-        aria-label="Match Chat"
+        aria-label="Trò chuyện ván đấu"
+        data-i18n-aria="chat.mobileTitle"
         aria-modal="false"
         hidden
       >
         <div class="mobile-chat-header">
           <div class="mobile-chat-header-title">
             <span class="mobile-chat-status-dot" aria-hidden="true"></span>
-            <span id="mobile-chat-title">Match Chat</span>
+            <span id="mobile-chat-title" data-i18n="chat.mobileTitle">Trò chuyện ván đấu</span>
           </div>
           <button
             id="mobile-chat-close-btn"
             type="button"
             class="mobile-chat-close-btn"
-            aria-label="Close chat"
-            title="Close chat"
+            aria-label="Đóng trò chuyện"
+            title="Đóng trò chuyện"
+            data-i18n-title="chat.closeChat"
+            data-i18n-aria="chat.closeChat"
           >
             ✕
           </button>
@@ -582,10 +675,10 @@
         <div id="mobile-chat-messages" class="mobile-chat-messages" aria-live="polite"></div>
 
         <div id="mobile-chat-quick-bar" class="mobile-chat-quick-bar" aria-label="Quick chat replies">
-          <button type="button" class="chat-quick-btn" data-chat-text="Good luck!">Good luck!</button>
-          <button type="button" class="chat-quick-btn" data-chat-text="Well played!">Well played!</button>
-          <button type="button" class="chat-quick-btn" data-chat-text="Good game!">Good game!</button>
-          <button type="button" class="chat-quick-btn" data-chat-text="Thanks!">Thanks!</button>
+          <button type="button" class="chat-quick-btn" data-chat-text="Chúc may mắn!" data-chat-key="chat.quickGoodLuck" data-i18n="chat.quickGoodLuck">Chúc may mắn!</button>
+          <button type="button" class="chat-quick-btn" data-chat-text="Chơi hay lắm!" data-chat-key="chat.quickWellPlayed" data-i18n="chat.quickWellPlayed">Chơi hay lắm!</button>
+          <button type="button" class="chat-quick-btn" data-chat-text="Ván đấu rất hay!" data-chat-key="chat.quickGoodGame" data-i18n="chat.quickGoodGame">Ván đấu rất hay!</button>
+          <button type="button" class="chat-quick-btn" data-chat-text="Cảm ơn!" data-chat-key="chat.quickThanks" data-i18n="chat.quickThanks">Cảm ơn!</button>
           <button type="button" class="chat-quick-btn" data-chat-text="👋" aria-label="Wave">👋</button>
           <button type="button" class="chat-quick-btn" data-chat-text="🤝" aria-label="Handshake">🤝</button>
           <button type="button" class="chat-quick-btn" data-chat-text="👏" aria-label="Clap">👏</button>
@@ -598,15 +691,16 @@
             class="text-input"
             maxlength="200"
             autocomplete="off"
-            placeholder="Send a message..."
+            placeholder="Nhập tin nhắn..."
             aria-label="Chat message"
+            data-i18n-placeholder="chat.placeholder"
           />
-          <button id="mobile-chat-send-btn" type="submit" class="btn btn-green btn-compact">
-            Send
+          <button id="mobile-chat-send-btn" type="submit" class="btn btn-green btn-compact" data-i18n="chat.send">
+            Gửi
           </button>
         </form>
-        <p id="mobile-chat-readonly-note" class="chat-readonly-note" hidden>
-          Spectators can view chat only.
+        <p id="mobile-chat-readonly-note" class="chat-readonly-note" data-i18n="chat.readonly" hidden>
+          Khán giả chỉ có thể xem trò chuyện.
         </p>
       </div>
     </div>

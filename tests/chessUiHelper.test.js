@@ -322,6 +322,13 @@ function testFullscreenHelpers() {
   assert.equal(exitMeta.glyph, '✕');
   assert.equal(exitMeta.ariaPressed, true);
 
+  const enterMetaVi = resolveFullscreenButtonMetadata(false, 'vi');
+  assert.equal(enterMetaVi.label, 'Toàn màn hình');
+  assert.equal(enterMetaVi.title, 'Bật toàn màn hình (F)');
+  const exitMetaVi = resolveFullscreenButtonMetadata(true, 'vi');
+  assert.equal(exitMetaVi.label, 'Thoát toàn màn hình');
+  assert.equal(exitMetaVi.title, 'Thoát toàn màn hình (Esc)');
+
   // Desktop standard (1200 x 800, no eval bar)
   const desktopDim = resolveFullscreenDimensions({
     viewportWidth: 1200,
@@ -436,6 +443,13 @@ function testMobileNavToggleMetadata() {
   // Falsy or truthy value handling
   assert.equal(resolveMobileNavToggleMetadata(undefined).isCollapsed, false);
   assert.equal(resolveMobileNavToggleMetadata(null).isCollapsed, false);
+
+  // Vietnamese language localization
+  const collapsedVi = resolveMobileNavToggleMetadata(true, 'vi');
+  assert.equal(collapsedVi.title, 'Mở rộng menu');
+  const expandedVi = resolveMobileNavToggleMetadata(false, 'vi');
+  assert.equal(expandedVi.label, 'Đóng');
+  assert.equal(expandedVi.title, 'Thu gọn menu');
 }
 
 test('resolveMobileNavToggleMetadata produces accurate mobile navigation toggle presentation metadata', testMobileNavToggleMetadata);
