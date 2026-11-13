@@ -194,3 +194,32 @@ test('analyzeGame evaluates full game, classifies moves, and reports progress', 
 test('analyzeGame aborts cleanly and terminates worker on AbortSignal', testAnalyzeGameAbortTerminatesWorker);
 test('createStockfishAnalyzer validates required scriptUrl', testRequiresScriptUrl);
 
+
+/**
+ * Verifies analyzePosition with multiPv=2 configures the engine and returns the runner-up evaluation.
+ * Expected: MultiPV option is sent once before search, primary eval comes from rank 1, secondBestEval from rank 2 (White perspective).
+ */
+async function testAnalyzePositionMultiPv() {
+  const { worker, commands } = createMockStockfishWorker({
+    [START_FEN]: {
+      scoreLine:
+        'info depth 10 multipv 1 score cp 80 pv e2e4\ninfo depth 10 multipv 2 score cp 20 pv d2d4',
+      bestmove: 'bestmove e2e4',
+    },
+  });
+  const analyzer = createStockfishAnalyzer({ scriptUrl: '/sf.js', createWorker: () => worker });
+  const result = await analyzer.analyzePosition(START_FEN, { depth: 10, multiPv: 2 });
+  assert.deepEqual(result.eval, { cp: 80, mate: null });
+  assert.deepEqual(result.secondBestEval, { cp: 20, mate: null });
+  assert.ok(commands.includes('setoption name MultiPV value 2'));
+  analyzer.dispose();
+
+  const plain = createMockStockfishWorker({});
+  const plainAnalyzer = createStockfishAnalyzer({ scriptUrl: '/sf.js', createWorker: () => plain.worker });
+  const plainResult = await plainAnalyzer.analyzePosition(START_FEN, { depth: 10 });
+  assert.equal(plainResult.secondBestEval, null);
+  assert.ok(!plain.commands.some((c) => c.startsWith('setoption')));
+  plainAnalyzer.dispose();
+}
+
+test('analyzePosition supports MultiPV runner-up evaluation', testAnalyzePositionMultiPv);

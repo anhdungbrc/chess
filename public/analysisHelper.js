@@ -210,3 +210,64 @@ export function uciToMoveSquares(uci) {
   };
 }
 
+const PIECE_POINTS = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+const SACRIFICE_MIN_POINTS = 3;
+const BRILLIANT_MAX_WIN_LOSS = 2;
+const BRILLIANT_MAX_PRIOR_WIN = 90;
+const BRILLIANT_MIN_RESULT_WIN = 45;
+const GREAT_MIN_GAP = 15;
+
+/**
+ * Detects whether a move gives up material: the moved piece is captured on its destination by the opponent's best reply.
+ *
+ * @param {{ movedType: string, capturedType: string | null, playedTo: string, replyUci: string | null }} params - Moved piece, piece it captured (if any), destination square, and opponent's best reply in UCI.
+ * @returns {boolean} True when the net loss (moved piece minus captured piece) is at least 3 points.
+ */
+export function isPieceSacrifice({ movedType, capturedType, playedTo, replyUci }) {
+  const reply = uciToMoveSquares(replyUci);
+  // Without a recapture on the destination square the piece was not actually given up.
+  if (!reply || reply.to !== playedTo) {
+    return false;
+  }
+  const net = (PIECE_POINTS[movedType] ?? 0) - (PIECE_POINTS[capturedType] ?? 0);
+  return net >= SACRIFICE_MIN_POINTS;
+}
+
+/**
+ * Decides whether a move deserves the Brilliant (genius) badge.
+ *
+ * @param {{ isSacrifice: boolean, winLoss: number, prevWinMover: number, nextWinMover: number }} params - Sacrifice flag and mover-perspective win% data.
+ * @returns {boolean} True for a near-best sacrifice that keeps the mover from losing, played in a position not already clearly won.
+ */
+export function detectBrilliantMove({ isSacrifice, winLoss, prevWinMover, nextWinMover }) {
+  return (
+    isSacrifice &&
+    winLoss <= BRILLIANT_MAX_WIN_LOSS &&
+    prevWinMover < BRILLIANT_MAX_PRIOR_WIN &&
+    nextWinMover >= BRILLIANT_MIN_RESULT_WIN
+  );
+}
+
+/**
+ * Decides whether a move deserves the Great badge: the engine's best move when the runner-up is much worse.
+ *
+ * @param {{ isExactBest: boolean, bestWinMover: number, secondBestWinMover: number | null }} params - Best-move flag and mover-perspective win% of the top two engine lines.
+ * @returns {boolean} True when the best move beats the second-best by at least 15 win%.
+ */
+export function detectGreatMove({ isExactBest, bestWinMover, secondBestWinMover }) {
+  if (!isExactBest || typeof secondBestWinMover !== 'number') {
+    return false;
+  }
+  return bestWinMover - secondBestWinMover >= GREAT_MIN_GAP;
+}
+
+/**
+ * Reads the MultiPV rank of a UCI info line.
+ *
+ * @param {string} line - Raw UCI info line.
+ * @returns {number} Rank (1 = best line); 1 when the line carries no multipv token.
+ */
+export function parseMultiPvIndex(line) {
+  const match = typeof line === 'string' ? line.match(/\bmultipv\s+(\d+)\b/) : null;
+  return match ? Number(match[1]) : 1;
+}

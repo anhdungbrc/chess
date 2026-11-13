@@ -1,4 +1,4 @@
-import { evalToWinPercent, formatEvalScore, uciToMoveSquares } from './analysisHelper.js';
+import { evalToWinPercent, formatEvalScore, summarizeGameAnalysis, uciToMoveSquares } from './analysisHelper.js';
 import { createStockfishAnalyzer } from './stockfishClient.js';
 import { formatReviewMoveLabel, parseFenBoard, resolveReviewViewState } from './reviewHelper.js';
 import {
@@ -14,8 +14,11 @@ import {
 import {
   formatBestMoveHint,
   formatCompanionStatus,
+  gradeCompanionMove,
+  hasSamePlacement,
+  inferMoveFromBoards,
   resolveCompanionBoardOrientation,
-  shouldTriggerAnalysis,
+  setFenTurn,
 } from './companionUiHelper.js';
 import {
   applyOptimisticMove,
@@ -145,6 +148,11 @@ const state = {
   companionSnapshot: null,
   companionEventSource: null,
   companionAnalysisAbortController: null,
+  // Engine analysis of the last fully analyzed synced position, used to grade the next move.
+  companionPrevAnalysis: null,
+  // Graded moves of the current synced game, used for per-side accuracy.
+  companionGradedMoves: [],
+  companionLastGrade: null,
 };
 
 const elements = {
@@ -204,6 +212,8 @@ const elements = {
   companionBestmoveBox: document.getElementById('companion-bestmove-box'),
   companionBestmoveLabel: document.getElementById('companion-bestmove-label'),
   companionEvalText: document.getElementById('companion-eval-text'),
+  companionMoveNote: document.getElementById('companion-move-note'),
+  companionAccuracyText: document.getElementById('companion-accuracy-text'),
   companionBookmarkletLink: document.getElementById('companion-bookmarklet-link'),
   companionCopyScriptBtn: document.getElementById('companion-copy-script-btn'),
   modeBotBtn: document.getElementById('mode-bot-btn'),
@@ -464,9 +474,10 @@ function startCompanionSync() {
  *
  * @param {Array<Array<{ square: string, type: string, color: 'w' | 'b' } | null>>} boardGrid - Board matrix.
  * @param {{ from: string, to: string } | null} lastMove - Coordinate pair of last move.
+ * @param {{ classification: string, to: string } | null} [grade] - Graded last move; its badge is drawn on the destination square.
  * @returns {void}
  */
-function renderCompanionBoard(boardGrid, lastMove) {
+function renderCompanionBoard(boardGrid, lastMove, grade = null) {
   elements.board.innerHTML = '';
   elements.board.classList.remove('is-reviewing');
   const rowOrder = state.isFlipped ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
@@ -493,6 +504,16 @@ function renderCompanionBoard(boardGrid, lastMove) {
         pieceEl.className = 'piece';
         pieceEl.innerHTML = getPieceSvg(piece.color, piece.type);
         squareEl.appendChild(pieceEl);
+      }
+
+      if (grade && grade.to === squareName) {
+        const badgeInfo = getClassificationBadgeInfo(grade.classification);
+        const badgeEl = document.createElement('span');
+        badgeEl.className = 'square-badge';
+        badgeEl.style.backgroundColor = badgeInfo.color;
+        badgeEl.title = badgeInfo.label;
+        badgeEl.textContent = badgeInfo.symbol;
+        squareEl.appendChild(badgeEl);
       }
 
       elements.board.appendChild(squareEl);
@@ -563,6 +584,40 @@ function renderCompanionEval(evaluation, turnColor) {
 }
 
 /**
+ * Shows the graded last move: badge on the board, classification note, and per-side accuracy for the synced game.
+ *
+ * @param {{ fen: string, lastMove: { from: string, to: string } | null }} snapshot - Current synced snapshot.
+ * @param {{ classification: string, moverColor: 'w' | 'b', playedUci: string, bestMoveUci: string | null, to: string } | null} grade - Graded last move or null when not gradable.
+ * @returns {void}
+ */
+function renderCompanionMoveReview(snapshot, grade) {
+  try {
+    renderCompanionBoard(parseFenBoard(snapshot.fen), snapshot.lastMove, grade);
+  } catch (err) {
+    console.error('Failed to re-render companion board with move badge:', err);
+  }
+
+  if (elements.companionMoveNote) {
+    elements.companionMoveNote.hidden = !grade;
+    if (grade) {
+      const badge = getClassificationBadgeInfo(grade.classification);
+      const label = t(`analysis.class.${grade.classification}`) || badge.label;
+      const side = grade.moverColor === 'w' ? (getLanguage() === 'en' ? 'White' : 'Trắng') : getLanguage() === 'en' ? 'Black' : 'Đen';
+      elements.companionMoveNote.textContent = `${badge.symbol} ${side}: ${grade.playedUci} — ${label}`;
+      elements.companionMoveNote.style.color = badge.color;
+    }
+  }
+
+  if (elements.companionAccuracyText) {
+    const { whiteAccuracy, blackAccuracy } = summarizeGameAnalysis(state.companionGradedMoves);
+    elements.companionAccuracyText.hidden = whiteAccuracy === null && blackAccuracy === null;
+    elements.companionAccuracyText.textContent =
+      `${getLanguage() === 'en' ? 'Accuracy' : 'Độ chính xác'}: ` +
+      `${getLanguage() === 'en' ? 'White' : 'Trắng'} ${whiteAccuracy ?? '--'}% • ${getLanguage() === 'en' ? 'Black' : 'Đen'} ${blackAccuracy ?? '--'}%`;
+  }
+}
+
+/**
  * Handles incoming companion board state, renders the reconstructed board, and executes Stockfish analysis.
  *
  * @param {object} snapshot - Synced board position snapshot.
@@ -574,8 +629,17 @@ async function handleCompanionSnapshot(snapshot) {
   }
 
   const lang = getLanguage();
-  const shouldAnalyze = shouldTriggerAnalysis(state.companionSnapshot?.fen, snapshot.fen);
+  const previousSnapshotFen = state.companionSnapshot?.fen;
+  // The relay's turn flips without any move (highlight noise), so only a placement change warrants a new analysis.
+  const shouldAnalyze = !hasSamePlacement(previousSnapshotFen, snapshot.fen);
   state.companionSnapshot = snapshot;
+
+  // A fresh start position means a new game on Chess.com, so drop the previous game's grades.
+  if (snapshot.fen.startsWith('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR')) {
+    state.companionPrevAnalysis = null;
+    state.companionGradedMoves = [];
+    state.companionLastGrade = null;
+  }
 
   // Sync board orientation with the snapshot perspective
   const targetOrientation = resolveCompanionBoardOrientation(snapshot.orientation);
@@ -634,14 +698,42 @@ async function handleCompanionSnapshot(snapshot) {
     }
 
     if (state.analyzer) {
-      const result = await state.analyzer.analyzePosition(snapshot.fen, {
+      // Once a move is inferred from the board diff, the side to move is known for certain; override the relay's guess.
+      const inferredMove = previousSnapshotFen ? inferMoveFromBoards(previousSnapshotFen, snapshot.fen) : null;
+      const analysisFen = inferredMove
+        ? setFenTurn(snapshot.fen, inferredMove.moverColor === 'w' ? 'b' : 'w')
+        : snapshot.fen;
+      const result = await state.analyzer.analyzePosition(analysisFen, {
         depth: 12,
         signal,
+        multiPv: 2,
       });
 
       if (signal.aborted) {
         return;
       }
+
+      // Grade only when the stored analysis belongs to the snapshot just before this one; otherwise a move was skipped.
+      const prev = state.companionPrevAnalysis;
+      const grade =
+        prev && hasSamePlacement(prev.fen, previousSnapshotFen)
+          ? gradeCompanionMove({ prev, snapshot: { fen: analysisFen }, analysis: result })
+          : null;
+      state.companionPrevAnalysis = {
+        fen: analysisFen,
+        eval: result.eval,
+        secondBestEval: result.secondBestEval,
+        bestMoveUci: result.bestMoveUci,
+      };
+      state.companionLastGrade = grade;
+      if (grade) {
+        state.companionGradedMoves.push({
+          color: grade.moverColor,
+          classification: grade.classification,
+          accuracy: grade.accuracy,
+        });
+      }
+      renderCompanionMoveReview(snapshot, grade);
 
       const scoreText = formatEvalScore(result.eval, snapshot.turn);
       const hintText = formatBestMoveHint(result.bestMoveUci, scoreText, lang);

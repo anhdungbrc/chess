@@ -2160,6 +2160,11 @@ body.has-fullscreen-board {
   color: #81b64c;
 }
 
+.companion-move-note {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
 .companion-eval-text {
   font-size: 0.85rem;
   color: var(--text-muted);

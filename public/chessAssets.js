@@ -151,6 +151,8 @@ function getAudioContext() {
 }
 
 const CLASSIFICATION_BADGES = {
+  brilliant: { symbol: '!!', label: 'Brilliant', color: '#1baca6' },
+  great: { symbol: '!', label: 'Great', color: '#5c8bb0' },
   best: { symbol: '★', label: 'Best', color: '#81b64c' },
   excellent: { symbol: '!', label: 'Excellent', color: '#96bc4b' },
   good: { symbol: '✓', label: 'Good', color: '#8ea885' },
@@ -162,7 +164,7 @@ const CLASSIFICATION_BADGES = {
 /**
  * Returns Chess.com-style badge symbol, display label, and accent color for a move classification.
  *
- * @param {string} classification - Move category ('best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder').
+ * @param {string} classification - Move category ('brilliant', 'great', 'best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder').
  * @returns {{ symbol: string, label: string, color: string }} Badge presentation metadata.
  */
 export function getClassificationBadgeInfo(classification) {

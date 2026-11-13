@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classifyMove,
+  detectBrilliantMove,
+  detectGreatMove,
+  isPieceSacrifice,
+  parseMultiPvIndex,
   computeMoveAccuracy,
   evalToWinPercent,
   formatEvalScore,
@@ -165,3 +169,70 @@ function testClassificationBadgeMetadata() {
 }
 
 test('getClassificationBadgeInfo returns Chess.com-style badge metadata', testClassificationBadgeMetadata);
+
+/**
+ * Verifies isPieceSacrifice flags a move whose moved piece is recaptured on its destination for a net loss of >= 3 points.
+ * Expected: Queen lost on d5 for a pawn is a sacrifice; knight-for-knight trade and an unanswered move are not.
+ */
+function testIsPieceSacrifice() {
+  assert.equal(isPieceSacrifice({ movedType: 'q', capturedType: 'p', playedTo: 'd5', replyUci: 'e6d5' }), true);
+  assert.equal(isPieceSacrifice({ movedType: 'n', capturedType: 'n', playedTo: 'd5', replyUci: 'e6d5' }), false);
+  assert.equal(isPieceSacrifice({ movedType: 'q', capturedType: null, playedTo: 'd5', replyUci: 'a7a6' }), false);
+  assert.equal(isPieceSacrifice({ movedType: 'b', capturedType: null, playedTo: 'f7', replyUci: null }), false);
+}
+
+/**
+ * Verifies detectBrilliantMove requires a sacrifice, a near-best result, and a position not already clearly won.
+ * Expected: true only when all three hold.
+ */
+function testDetectBrilliantMove() {
+  const base = { isSacrifice: true, winLoss: 0.5, prevWinMover: 55, nextWinMover: 60 };
+  assert.equal(detectBrilliantMove(base), true);
+  assert.equal(detectBrilliantMove({ ...base, isSacrifice: false }), false);
+  assert.equal(detectBrilliantMove({ ...base, winLoss: 9 }), false);
+  assert.equal(detectBrilliantMove({ ...base, prevWinMover: 96 }), false);
+  assert.equal(detectBrilliantMove({ ...base, nextWinMover: 30 }), false);
+}
+
+/**
+ * Verifies detectGreatMove marks only the engine's best move that is much better than the runner-up.
+ * Expected: gap >= 15 win% on the best move is great; small gap, non-best move, or missing runner-up is not.
+ */
+function testDetectGreatMove() {
+  assert.equal(detectGreatMove({ isExactBest: true, bestWinMover: 70, secondBestWinMover: 40 }), true);
+  assert.equal(detectGreatMove({ isExactBest: true, bestWinMover: 70, secondBestWinMover: 62 }), false);
+  assert.equal(detectGreatMove({ isExactBest: false, bestWinMover: 70, secondBestWinMover: 40 }), false);
+  assert.equal(detectGreatMove({ isExactBest: true, bestWinMover: 70, secondBestWinMover: null }), false);
+}
+
+test('isPieceSacrifice detects net material loss on destination square', testIsPieceSacrifice);
+test('detectBrilliantMove requires sacrifice, near-best result, not already won', testDetectBrilliantMove);
+test('detectGreatMove requires best move with large gap to runner-up', testDetectGreatMove);
+
+/**
+ * Verifies parseMultiPvIndex reads the MultiPV rank of an info line.
+ * Expected: explicit rank is returned; lines without the token default to rank 1.
+ */
+function testParseMultiPvIndex() {
+  assert.equal(parseMultiPvIndex('info depth 10 multipv 2 score cp 30 pv d2d4'), 2);
+  assert.equal(parseMultiPvIndex('info depth 10 score cp 30 pv d2d4'), 1);
+}
+
+test('parseMultiPvIndex defaults to rank 1', testParseMultiPvIndex);
+
+/**
+ * Verifies brilliant and great have their own Chess.com-style badges instead of falling back to 'good'.
+ * Expected: brilliant is '!!', great is '!', each with a hex color distinct from the fallback.
+ */
+function testBrilliantGreatBadges() {
+  const brilliant = getClassificationBadgeInfo('brilliant');
+  const great = getClassificationBadgeInfo('great');
+  assert.equal(brilliant.symbol, '!!');
+  assert.equal(brilliant.label, 'Brilliant');
+  assert.equal(great.symbol, '!');
+  assert.equal(great.label, 'Great');
+  assert.match(brilliant.color, /^#[0-9a-f]{6}$/i);
+  assert.notEqual(great.color, getClassificationBadgeInfo('excellent').color);
+}
+
+test('getClassificationBadgeInfo defines brilliant and great badges', testBrilliantGreatBadges);

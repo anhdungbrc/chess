@@ -1,4 +1,107 @@
+import {
+  classifyMove,
+  detectBrilliantMove,
+  detectGreatMove,
+  evalToWinPercent,
+  isPieceSacrifice,
+} from './analysisHelper.js';
 import { isSamePosition } from './companionHelper.js';
+import { parseFenBoard } from './reviewHelper.js';
+
+const FILE_LETTERS = 'abcdefgh';
+
+/**
+ * Compares only the piece-placement field of two FENs (relay turn and counters are unreliable).
+ *
+ * @param {string | null | undefined} fenA - First FEN.
+ * @param {string | null | undefined} fenB - Second FEN.
+ * @returns {boolean} True when both are strings with identical piece placement.
+ */
+export function hasSamePlacement(fenA, fenB) {
+  if (typeof fenA !== 'string' || typeof fenB !== 'string') {
+    return false;
+  }
+  return fenA.trim().split(/\s+/)[0] === fenB.trim().split(/\s+/)[0];
+}
+
+/**
+ * Returns a copy of a FEN with the side-to-move field replaced.
+ *
+ * @param {string} fen - Source FEN.
+ * @param {'w' | 'b'} turn - Side to move to write.
+ * @returns {string} FEN with the new turn field.
+ */
+export function setFenTurn(fen, turn) {
+  const parts = fen.trim().split(/\s+/);
+  parts[1] = turn;
+  return parts.join(' ');
+}
+
+/**
+ * Infers the single move that turns one board placement into another, without trusting any turn or highlight data.
+ *
+ * @param {string} prevFen - FEN before the move.
+ * @param {string} nextFen - FEN after the move.
+ * @returns {{ moverColor: 'w' | 'b', from: string, to: string, promotion: string, movedType: string, capturedType: string | null } | null}
+ *   The move, or null when the placements are equal, malformed, or differ by more than one ply.
+ */
+export function inferMoveFromBoards(prevFen, nextFen) {
+  let prevBoard;
+  let nextBoard;
+  try {
+    prevBoard = parseFenBoard(prevFen);
+    nextBoard = parseFenBoard(nextFen);
+  } catch {
+    return null;
+  }
+
+  // Per colour: squares that lost one of its pieces ("left") and squares where a new piece of it appeared ("arrived").
+  const left = { w: [], b: [] };
+  const arrived = { w: [], b: [] };
+  for (let row = 0; row < 8; row += 1) {
+    for (let col = 0; col < 8; col += 1) {
+      const before = prevBoard[row][col];
+      const after = nextBoard[row][col];
+      const square = `${FILE_LETTERS[col]}${8 - row}`;
+      const isSame = before && after && before.color === after.color && before.type === after.type;
+      if (before && !isSame) {
+        left[before.color].push({ square, type: before.type });
+      }
+      if (after && !isSame) {
+        arrived[after.color].push({ square, type: after.type });
+      }
+    }
+  }
+
+  const moverColor = arrived.w.length > 0 ? 'w' : 'b';
+  const enemyColor = moverColor === 'w' ? 'b' : 'w';
+  const moverArrived = arrived[moverColor];
+  const moverLeft = left[moverColor];
+  // A single ply never adds enemy pieces and removes at most one (capture or en passant).
+  if (moverArrived.length === 0 || arrived[enemyColor].length > 0 || left[enemyColor].length > 1) {
+    return null;
+  }
+  const capturedType = left[enemyColor][0]?.type ?? null;
+
+  if (moverArrived.length === 1 && moverLeft.length === 1) {
+    const { square: from, type: movedType } = moverLeft[0];
+    const { square: to, type: landedType } = moverArrived[0];
+    if (landedType !== movedType && movedType !== 'p') {
+      return null;
+    }
+    return { moverColor, from, to, promotion: landedType !== movedType ? landedType : '', movedType, capturedType };
+  }
+
+  // Castling moves king and rook together; report the king move and require no capture.
+  if (moverArrived.length === 2 && moverLeft.length === 2 && capturedType === null) {
+    const king = moverLeft.find((entry) => entry.type === 'k');
+    const kingTarget = moverArrived.find((entry) => entry.type === 'k');
+    if (king && kingTarget) {
+      return { moverColor, from: king.square, to: kingTarget.square, promotion: '', movedType: 'k', capturedType: null };
+    }
+  }
+  return null;
+}
 
 /**
  * Formats user-facing status indicators for the live companion synchronizer.
@@ -137,3 +240,79 @@ export function shouldTriggerAnalysis(previousFen, nextFen) {
   return !isSamePosition(previousFen, nextFen);
 }
 
+
+/**
+ * Grades the move that led from the previous analyzed position to the current one (Chess.com-style review).
+ * The move and mover are inferred from the two boards because the relay's turn/highlight data is unreliable.
+ *
+ * @param {{
+ *   prev: { fen: string, eval: object, secondBestEval: object | null, bestMoveUci: string | null } | null,
+ *   snapshot: { fen: string },
+ *   analysis: { eval: object, bestMoveUci: string | null },
+ * }} params - Engine analysis of the previous position (analyzed with the correct side to move), the new snapshot, and engine analysis of the new position.
+ * @returns {{ classification: string, winLoss: number, accuracy: number, moverColor: 'w' | 'b', playedUci: string, bestMoveUci: string | null, to: string } | null}
+ *   Grade, or null when the positions are not provably one move apart or the previous analysis used the wrong side to move.
+ */
+export function gradeCompanionMove({ prev, snapshot, analysis }) {
+  if (!prev || !snapshot?.fen || !analysis) {
+    return null;
+  }
+  const move = inferMoveFromBoards(prev.fen, snapshot.fen);
+  // If the stored previous analysis was run for the other side, its eval and best move are meaningless here.
+  if (!move || prev.fen.trim().split(/\s+/)[1] !== move.moverColor) {
+    return null;
+  }
+  const { moverColor, from, to, promotion, movedType, capturedType } = move;
+
+  const playedUci = `${from}${to}${promotion}`;
+  const graded = classifyMove({
+    prevEval: prev.eval,
+    nextEval: analysis.eval,
+    moverColor,
+    playedUci,
+    bestMoveUci: prev.bestMoveUci,
+  });
+
+  const toMoverWin = (evalScore) => {
+    const whiteWin = evalToWinPercent(evalScore);
+    return moverColor === 'w' ? whiteWin : 100 - whiteWin;
+  };
+  const prevWinMover = toMoverWin(prev.eval);
+  let classification = graded.classification;
+
+  if (
+    detectBrilliantMove({
+      isSacrifice: isPieceSacrifice({
+        movedType,
+        capturedType,
+        playedTo: to,
+        // The engine's best reply in the new position is the opponent's most likely recapture.
+        replyUci: analysis.bestMoveUci,
+      }),
+      winLoss: graded.winLoss,
+      prevWinMover,
+      nextWinMover: toMoverWin(analysis.eval),
+    })
+  ) {
+    classification = 'brilliant';
+  } else if (
+    classification === 'best' &&
+    detectGreatMove({
+      isExactBest: playedUci === prev.bestMoveUci,
+      bestWinMover: prevWinMover,
+      secondBestWinMover: prev.secondBestEval ? toMoverWin(prev.secondBestEval) : null,
+    })
+  ) {
+    classification = 'great';
+  }
+
+  return {
+    classification,
+    winLoss: graded.winLoss,
+    accuracy: graded.accuracy,
+    moverColor,
+    playedUci,
+    bestMoveUci: prev.bestMoveUci,
+    to,
+  };
+}

@@ -1,6 +1,7 @@
 import {
   classifyMove,
   evalToWinPercent,
+  parseMultiPvIndex,
   parseUciInfoLine,
   summarizeGameAnalysis,
 } from './analysisHelper.js';
@@ -38,6 +39,8 @@ export function createStockfishAnalyzer({
   let readyPromise = null;
   let activeLineHandler = null;
   let activeErrorHandler = null;
+  // Engine keeps MultiPV across searches, so remember it to send setoption only on change.
+  let currentMultiPv = 1;
 
   /**
    * Terminates the active Stockfish Web Worker and resets initialization state.
@@ -54,6 +57,7 @@ export function createStockfishAnalyzer({
     readyPromise = null;
     activeLineHandler = null;
     activeErrorHandler = null;
+    currentMultiPv = 1;
   }
 
   /**
@@ -128,8 +132,8 @@ export function createStockfishAnalyzer({
    * Evaluates a single FEN position at the requested search depth.
    *
    * @param {string} fen - Valid FEN position string.
-   * @param {{ depth?: number, signal?: AbortSignal }} [options] - Search depth and abort signal.
-   * @returns {Promise<{ eval: { cp: number | null, mate: number | null }, bestMoveUci: string | null, pv: string[], depth: number }>} Evaluation snapshot.
+   * @param {{ depth?: number, signal?: AbortSignal, multiPv?: number }} [options] - Search depth, abort signal, and number of principal variations (default 1).
+   * @returns {Promise<{ eval: { cp: number | null, mate: number | null }, secondBestEval: { cp: number | null, mate: number | null } | null, bestMoveUci: string | null, pv: string[], depth: number }>} Evaluation snapshot.
    */
   async function analyzePosition(fen, options = {}) {
     const targetDepth = options.depth ?? depth;
@@ -140,10 +144,12 @@ export function createStockfishAnalyzer({
       throw createAbortError();
     }
 
+    const targetMultiPv = options.multiPv ?? 1;
     const turnColor = fen.trim().split(/\s+/)[1] === 'b' ? 'b' : 'w';
 
     return new Promise((resolve, reject) => {
       let latestInfo = null;
+      let secondInfo = null;
 
       const cleanup = () => {
         signal?.removeEventListener('abort', onAbort);
@@ -168,7 +174,14 @@ export function createStockfishAnalyzer({
       activeLineHandler = (line) => {
         if (line.startsWith('info ')) {
           const parsed = parseUciInfoLine(line, turnColor);
-          if (parsed && (!latestInfo || parsed.depth >= latestInfo.depth)) {
+          if (!parsed) {
+            return;
+          }
+          if (parseMultiPvIndex(line) === 2) {
+            if (!secondInfo || parsed.depth >= secondInfo.depth) {
+              secondInfo = parsed;
+            }
+          } else if (!latestInfo || parsed.depth >= latestInfo.depth) {
             latestInfo = parsed;
           }
           return;
@@ -182,6 +195,7 @@ export function createStockfishAnalyzer({
             eval: latestInfo
               ? { cp: latestInfo.cp, mate: latestInfo.mate }
               : { cp: null, mate: null },
+            secondBestEval: secondInfo ? { cp: secondInfo.cp, mate: secondInfo.mate } : null,
             bestMoveUci,
             pv: latestInfo?.pv ?? [],
             depth: latestInfo?.depth ?? 0,
@@ -189,6 +203,10 @@ export function createStockfishAnalyzer({
         }
       };
 
+      if (targetMultiPv !== currentMultiPv) {
+        activeWorker.postMessage(`setoption name MultiPV value ${targetMultiPv}`);
+        currentMultiPv = targetMultiPv;
+      }
       activeWorker.postMessage(`position fen ${fen}`);
       activeWorker.postMessage(`go depth ${targetDepth}`);
     });
