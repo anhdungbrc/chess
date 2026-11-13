@@ -440,4 +440,75 @@ export function resolveFullscreenDimensions(options) {
   };
 }
 
+/**
+ * Determines whether the floating mobile chat bubble should be rendered.
+ * Mobile chat is exclusively available in friend mode when on a mobile viewport or in fullscreen focus mode.
+ *
+ * @param {object | null | undefined} options - Context options.
+ * @param {string | undefined} options.mode - Match mode ('friend' | 'bot').
+ * @param {boolean | undefined} options.isMobile - Whether the viewport is mobile-sized (<= 780px).
+ * @param {boolean | undefined} options.isFullscreen - Whether fullscreen mode is active.
+ * @returns {boolean} True if the mobile chat bubble should be visible.
+ */
+export function resolveMobileChatVisibility(options) {
+  if (!options || options.mode !== 'friend') {
+    return false;
+  }
+  return Boolean(options.isMobile || options.isFullscreen);
+}
+
+/**
+ * Formats the unread message counter badge for the mobile chat bubble.
+ * Hides badge on zero or negative counts, caps display at '99+'.
+ *
+ * @param {number | null | undefined} unreadCount - Number of unread chat messages.
+ * @returns {{ hidden: boolean, text: string }} Badge display state.
+ */
+export function resolveMobileChatBadge(unreadCount) {
+  const count = Number(unreadCount) || 0;
+  if (count <= 0) {
+    return { hidden: true, text: '0' };
+  }
+  if (count > 99) {
+    return { hidden: false, text: '99+' };
+  }
+  return { hidden: false, text: String(count) };
+}
+
+/**
+ * Clamps floating bubble coordinates to ensure it remains fully within viewport safe margins.
+ *
+ * @param {object | null | undefined} params - Coordinates and boundary dimensions.
+ * @param {number} [params.x=0] - Proposed X coordinate.
+ * @param {number} [params.y=0] - Proposed Y coordinate.
+ * @param {number} [params.bubbleWidth=52] - Bubble diameter/width in pixels.
+ * @param {number} [params.bubbleHeight=52] - Bubble height in pixels.
+ * @param {number} [params.viewportWidth=360] - Current window inner width.
+ * @param {number} [params.viewportHeight=640] - Current window inner height.
+ * @param {number} [params.margin=12] - Safe inset boundary margin in pixels.
+ * @returns {{ x: number, y: number }} Clamped coordinates.
+ */
+export function clampBubblePosition(params) {
+  const bubbleWidth = Number(params?.bubbleWidth) || 52;
+  const bubbleHeight = Number(params?.bubbleHeight) || 52;
+  const viewportWidth = Math.max(bubbleWidth + 24, Number(params?.viewportWidth) || 360);
+  const viewportHeight = Math.max(bubbleHeight + 24, Number(params?.viewportHeight) || 640);
+  const margin = Math.max(0, Number(params?.margin) || 12);
+
+  const rawX = Number(params?.x) ?? margin;
+  const rawY = Number(params?.y) ?? margin;
+
+  const minX = margin;
+  const maxX = Math.max(minX, viewportWidth - bubbleWidth - margin);
+  const minY = margin;
+  const maxY = Math.max(minY, viewportHeight - bubbleHeight - margin);
+
+  // Clamp ensures the bubble never escapes the screen during dragging.
+  const x = Math.min(Math.max(rawX, minX), maxX);
+  const y = Math.min(Math.max(rawY, minY), maxY);
+
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
+
 

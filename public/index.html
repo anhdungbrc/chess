@@ -523,6 +523,81 @@
       </aside>
     </div>
 
+    <!-- Mobile floating messenger chat bubble and popup -->
+    <div id="mobile-chat-container" class="mobile-chat-container">
+      <button
+        id="mobile-chat-fab"
+        type="button"
+        class="mobile-chat-fab"
+        aria-label="Open match chat"
+        aria-expanded="false"
+        title="Open match chat"
+        hidden
+      >
+        <span class="mobile-chat-fab-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
+            <path d="M12 2C6.477 2 2 6.145 2 11.258c0 2.915 1.458 5.524 3.737 7.185V22l3.413-1.874c.91.252 1.871.39 2.85.39 5.523 0 10-4.145 10-9.258C22 6.145 17.523 2 12 2zm1.05 12.385l-2.62-2.796-5.112 2.796 5.623-5.967 2.688 2.796 5.044-2.796-5.623 5.967z"/>
+          </svg>
+        </span>
+        <span id="mobile-chat-fab-badge" class="mobile-chat-fab-badge" hidden>0</span>
+      </button>
+
+      <div
+        id="mobile-chat-popup"
+        class="mobile-chat-popup"
+        role="dialog"
+        aria-label="Match Chat"
+        aria-modal="false"
+        hidden
+      >
+        <div class="mobile-chat-header">
+          <div class="mobile-chat-header-title">
+            <span class="mobile-chat-status-dot" aria-hidden="true"></span>
+            <span id="mobile-chat-title">Match Chat</span>
+          </div>
+          <button
+            id="mobile-chat-close-btn"
+            type="button"
+            class="mobile-chat-close-btn"
+            aria-label="Close chat"
+            title="Close chat"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div id="mobile-chat-messages" class="mobile-chat-messages" aria-live="polite"></div>
+
+        <div id="mobile-chat-quick-bar" class="mobile-chat-quick-bar" aria-label="Quick chat replies">
+          <button type="button" class="chat-quick-btn" data-chat-text="Good luck!">Good luck!</button>
+          <button type="button" class="chat-quick-btn" data-chat-text="Well played!">Well played!</button>
+          <button type="button" class="chat-quick-btn" data-chat-text="Good game!">Good game!</button>
+          <button type="button" class="chat-quick-btn" data-chat-text="Thanks!">Thanks!</button>
+          <button type="button" class="chat-quick-btn" data-chat-text="👋" aria-label="Wave">👋</button>
+          <button type="button" class="chat-quick-btn" data-chat-text="🤝" aria-label="Handshake">🤝</button>
+          <button type="button" class="chat-quick-btn" data-chat-text="👏" aria-label="Clap">👏</button>
+        </div>
+
+        <form id="mobile-chat-form" class="mobile-chat-form">
+          <input
+            id="mobile-chat-input"
+            type="text"
+            class="text-input"
+            maxlength="200"
+            autocomplete="off"
+            placeholder="Send a message..."
+            aria-label="Chat message"
+          />
+          <button id="mobile-chat-send-btn" type="submit" class="btn btn-green btn-compact">
+            Send
+          </button>
+        </form>
+        <p id="mobile-chat-readonly-note" class="chat-readonly-note" hidden>
+          Spectators can view chat only.
+        </p>
+      </div>
+    </div>
+
     <script type="module" src="/app.js"></script>
   </body>
 </html>

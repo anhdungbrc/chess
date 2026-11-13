@@ -12,6 +12,9 @@ import {
   resolveFullscreenButtonMetadata,
   resolveFullscreenDimensions,
   resolveInviteUrl,
+  resolveMobileChatBadge,
+  resolveMobileChatVisibility,
+  clampBubblePosition,
   resolveSquareFromPoint,
   resolveViewerColor,
 } from '../public/chessUiHelper.js';
@@ -358,5 +361,54 @@ function testFullscreenHelpers() {
 }
 
 test('resolveFullscreenButtonMetadata and resolveFullscreenDimensions compute fullscreen state and geometry', testFullscreenHelpers);
+
+/**
+ * Verifies resolveMobileChatVisibility, resolveMobileChatBadge, and clampBubblePosition for mobile chat bubble.
+ * Expected: visibility true only for friend mode on mobile or fullscreen; badge hidden on <=0 and formatted on >0; clamp keeps bubble within viewport.
+ */
+function testMobileChatUiHelpers() {
+  // resolveMobileChatVisibility
+  assert.equal(resolveMobileChatVisibility({ mode: 'friend', isMobile: true, isFullscreen: false }), true);
+  assert.equal(resolveMobileChatVisibility({ mode: 'friend', isMobile: false, isFullscreen: true }), true);
+  assert.equal(resolveMobileChatVisibility({ mode: 'friend', isMobile: false, isFullscreen: false }), false);
+  assert.equal(resolveMobileChatVisibility({ mode: 'bot', isMobile: true, isFullscreen: true }), false);
+  assert.equal(resolveMobileChatVisibility(null), false);
+
+  // resolveMobileChatBadge
+  assert.deepEqual(resolveMobileChatBadge(0), { hidden: true, text: '0' });
+  assert.deepEqual(resolveMobileChatBadge(-1), { hidden: true, text: '0' });
+  assert.deepEqual(resolveMobileChatBadge(1), { hidden: false, text: '1' });
+  assert.deepEqual(resolveMobileChatBadge(42), { hidden: false, text: '42' });
+  assert.deepEqual(resolveMobileChatBadge(120), { hidden: false, text: '99+' });
+
+  // clampBubblePosition
+  const clamped1 = clampBubblePosition({
+    x: -50,
+    y: 9999,
+    bubbleWidth: 52,
+    bubbleHeight: 52,
+    viewportWidth: 400,
+    viewportHeight: 800,
+    margin: 12,
+  });
+  assert.deepEqual(clamped1, { x: 12, y: 800 - 52 - 12 });
+
+  const clamped2 = clampBubblePosition({
+    x: 200,
+    y: 300,
+    bubbleWidth: 52,
+    bubbleHeight: 52,
+    viewportWidth: 400,
+    viewportHeight: 800,
+    margin: 12,
+  });
+  assert.deepEqual(clamped2, { x: 200, y: 300 });
+
+  const clampedFallback = clampBubblePosition(null);
+  assert.equal(typeof clampedFallback.x, 'number');
+  assert.equal(typeof clampedFallback.y, 'number');
+}
+
+test('resolveMobileChatVisibility, resolveMobileChatBadge, and clampBubblePosition support floating mobile chat', testMobileChatUiHelpers);
 
 

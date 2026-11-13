@@ -544,6 +544,8 @@ async function testRealPublicChessComAssetsServed() {
     assert.match(html, /id="nav-fullscreen-btn"/);
     assert.match(html, /id="board-fullscreen-btn"/);
     assert.match(html, /id="fullscreen-exit-btn"/);
+    assert.match(html, /id="mobile-chat-fab"/);
+    assert.match(html, /id="mobile-chat-popup"/);
 
     const assetsRes = await fetch(`${ctx.baseUrl}/chessAssets.js`);
     assert.equal(assetsRes.status, 200);

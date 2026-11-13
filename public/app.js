@@ -6,12 +6,16 @@ import {
   canInteractWithBoard,
   canSendMatchChat,
   computeCapturedMaterial,
+  clampBubblePosition,
   formatClockMs,
   resolveActiveAvatarBubbles,
   resolveAvatarChatBubble,
   resolveChatWsUrl,
   resolveFullscreenButtonMetadata,
+  resolveFullscreenDimensions,
   resolveInviteUrl,
+  resolveMobileChatBadge,
+  resolveMobileChatVisibility,
   resolveSquareFromPoint,
   resolveViewerColor,
 } from './chessUiHelper.js';
@@ -96,6 +100,9 @@ const state = {
   chatReconnectTimer: null,
   chatMessages: [],
   unreadChatCount: 0,
+  isMobileChatOpen: false,
+  mobileBubblePos: null,
+  mobileBubblePulseTimer: null,
   avatarBubbles: {},
   avatarBubbleTimers: {},
   selectedSquare: null,
@@ -201,6 +208,18 @@ const elements = {
   chatInput: document.getElementById('chat-input'),
   chatSendBtn: document.getElementById('chat-send-btn'),
   chatReadonlyNote: document.getElementById('chat-readonly-note'),
+  mobileChatContainer: document.getElementById('mobile-chat-container'),
+  mobileChatFab: document.getElementById('mobile-chat-fab'),
+  mobileChatFabBadge: document.getElementById('mobile-chat-fab-badge'),
+  mobileChatPopup: document.getElementById('mobile-chat-popup'),
+  mobileChatTitle: document.getElementById('mobile-chat-title'),
+  mobileChatCloseBtn: document.getElementById('mobile-chat-close-btn'),
+  mobileChatMessages: document.getElementById('mobile-chat-messages'),
+  mobileChatQuickBar: document.getElementById('mobile-chat-quick-bar'),
+  mobileChatForm: document.getElementById('mobile-chat-form'),
+  mobileChatInput: document.getElementById('mobile-chat-input'),
+  mobileChatSendBtn: document.getElementById('mobile-chat-send-btn'),
+  mobileChatReadonlyNote: document.getElementById('mobile-chat-readonly-note'),
   promotionModal: document.getElementById('promotion-modal'),
   promotionChoices: document.getElementById('promotion-choices'),
   promotionCancelBtn: document.getElementById('promotion-cancel-btn'),
@@ -2107,6 +2126,87 @@ function setPlaySubtab(subtab) {
 }
 
 /**
+ * Renders formatted chat message items into a specified DOM container.
+ *
+ * @param {HTMLElement | null} container - Destination message list element.
+ * @returns {void}
+ */
+function renderMessageListInto(container) {
+  if (!container) {
+    return;
+  }
+  container.innerHTML = '';
+  if (state.chatMessages.length === 0) {
+    const emptyEl = document.createElement('p');
+    emptyEl.className = 'chat-empty';
+    emptyEl.textContent = 'No messages yet. Say hello!';
+    container.appendChild(emptyEl);
+    return;
+  }
+  for (const msg of state.chatMessages) {
+    const itemEl = document.createElement('div');
+    if (msg.kind === 'system') {
+      itemEl.className = msg.isRoundDivider
+        ? 'chat-msg is-system is-round-divider'
+        : 'chat-msg is-system';
+      itemEl.textContent = msg.text;
+    } else {
+      const isSelf = Boolean(state.viewerSlot && msg.senderSlot === state.viewerSlot);
+      itemEl.className = `chat-msg ${isSelf ? 'is-self' : 'is-opponent'}`;
+      const senderEl = document.createElement('span');
+      senderEl.className = 'chat-sender';
+      senderEl.textContent = `${msg.senderName}:`;
+      const bodyEl = document.createElement('span');
+      bodyEl.textContent = msg.text;
+      itemEl.append(senderEl, bodyEl);
+    }
+    container.appendChild(itemEl);
+  }
+}
+
+/**
+ * Triggers a momentary pulse animation on the floating mobile chat bubble when receiving opponent messages.
+ *
+ * @returns {void}
+ */
+function triggerMobileChatFabPulse() {
+  if (!elements.mobileChatFab) {
+    return;
+  }
+  if (state.mobileBubblePulseTimer) {
+    clearTimeout(state.mobileBubblePulseTimer);
+  }
+  elements.mobileChatFab.classList.add('has-unread-pulse');
+  state.mobileBubblePulseTimer = setTimeout(() => {
+    elements.mobileChatFab.classList.remove('has-unread-pulse');
+    state.mobileBubblePulseTimer = null;
+  }, 2200);
+}
+
+/**
+ * Toggles the mobile chat popup open or closed and syncs unread counts.
+ *
+ * @param {boolean} [forcedState] - Explicit open/closed state if provided.
+ * @returns {void}
+ */
+function toggleMobileChat(forcedState) {
+  const next = typeof forcedState === 'boolean' ? forcedState : !state.isMobileChatOpen;
+  state.isMobileChatOpen = next;
+  if (state.isMobileChatOpen) {
+    state.unreadChatCount = 0;
+    if (elements.mobileChatFab) {
+      elements.mobileChatFab.classList.remove('has-unread-pulse');
+    }
+  }
+  renderChatPanel(state.game, getViewerColor());
+  if (state.isMobileChatOpen && elements.mobileChatInput && !elements.mobileChatInput.disabled) {
+    setTimeout(() => {
+      elements.mobileChatInput?.focus();
+    }, 60);
+  }
+}
+
+/**
  * Renders the friend-match chat sub-tabs, unread counter, message list, quick-chat bar, and input permissions.
  *
  * @param {object | null} game - Current game snapshot.
@@ -2121,6 +2221,13 @@ function renderChatPanel(game, viewerColor) {
     elements.movesSection.hidden = false;
     elements.chatSection.hidden = true;
     elements.chatUnreadBadge.hidden = true;
+    if (elements.mobileChatFab) {
+      elements.mobileChatFab.hidden = true;
+    }
+    if (elements.mobileChatPopup) {
+      elements.mobileChatPopup.hidden = true;
+    }
+    state.isMobileChatOpen = false;
     return;
   }
 
@@ -2149,36 +2256,51 @@ function renderChatPanel(game, viewerColor) {
   elements.chatInput.disabled = !canChat;
   elements.chatSendBtn.disabled = !canChat;
 
-  elements.chatMessages.innerHTML = '';
-  if (state.chatMessages.length === 0) {
-    const emptyEl = document.createElement('p');
-    emptyEl.className = 'chat-empty';
-    emptyEl.textContent = 'No messages yet. Say hello!';
-    elements.chatMessages.appendChild(emptyEl);
-  } else {
-    for (const msg of state.chatMessages) {
-      const itemEl = document.createElement('div');
-      if (msg.kind === 'system') {
-        itemEl.className = msg.isRoundDivider
-          ? 'chat-msg is-system is-round-divider'
-          : 'chat-msg is-system';
-        itemEl.textContent = msg.text;
-      } else {
-        const isSelf = Boolean(state.viewerSlot && msg.senderSlot === state.viewerSlot);
-        itemEl.className = `chat-msg ${isSelf ? 'is-self' : 'is-opponent'}`;
-        const senderEl = document.createElement('span');
-        senderEl.className = 'chat-sender';
-        senderEl.textContent = `${msg.senderName}:`;
-        const bodyEl = document.createElement('span');
-        bodyEl.textContent = msg.text;
-        itemEl.append(senderEl, bodyEl);
-      }
-      elements.chatMessages.appendChild(itemEl);
-    }
-  }
+  renderMessageListInto(elements.chatMessages);
 
   if (isChatOpen) {
     elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
+  }
+
+  // Render mobile floating chat FAB and popup
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 780;
+  const showMobileFab = resolveMobileChatVisibility({
+    mode: game?.mode,
+    isMobile,
+    isFullscreen: state.isFullscreen,
+  });
+
+  if (elements.mobileChatFab) {
+    elements.mobileChatFab.hidden = !showMobileFab;
+    elements.mobileChatFab.setAttribute('aria-expanded', String(state.isMobileChatOpen));
+
+    const fabBadge = resolveMobileChatBadge(state.isMobileChatOpen ? 0 : state.unreadChatCount);
+    if (elements.mobileChatFabBadge) {
+      elements.mobileChatFabBadge.hidden = fabBadge.hidden;
+      elements.mobileChatFabBadge.textContent = fabBadge.text;
+    }
+  }
+
+  if (elements.mobileChatPopup) {
+    elements.mobileChatPopup.hidden = !showMobileFab || !state.isMobileChatOpen;
+    if (showMobileFab && state.isMobileChatOpen) {
+      if (elements.mobileChatQuickBar) elements.mobileChatQuickBar.hidden = !canChat;
+      if (elements.mobileChatForm) elements.mobileChatForm.hidden = !canChat;
+      if (elements.mobileChatReadonlyNote) elements.mobileChatReadonlyNote.hidden = canChat;
+      if (elements.mobileChatInput) elements.mobileChatInput.disabled = !canChat;
+      if (elements.mobileChatSendBtn) elements.mobileChatSendBtn.disabled = !canChat;
+
+      const opponentSlot = state.viewerSlot === 'p1' ? 'p2' : 'p1';
+      const opponentPlayer = Object.values(game?.players ?? {}).find((p) => p?.slot === opponentSlot);
+      if (elements.mobileChatTitle) {
+        elements.mobileChatTitle.textContent = opponentPlayer?.name
+          ? `Chat with ${opponentPlayer.name}`
+          : 'Match Chat';
+      }
+
+      renderMessageListInto(elements.mobileChatMessages);
+      elements.mobileChatMessages.scrollTop = elements.mobileChatMessages.scrollHeight;
+    }
   }
 }
 
@@ -2275,10 +2397,12 @@ function handleIncomingChatMessage(message) {
   }
   if (
     state.activePlaySubtab !== 'chat' &&
+    !state.isMobileChatOpen &&
     message.kind === 'player' &&
     message.senderSlot !== state.viewerSlot
   ) {
     state.unreadChatCount += 1;
+    triggerMobileChatFabPulse();
   }
   if (message.kind === 'player' && message.senderSlot) {
     showAvatarBubble(message.senderSlot, message.text);
@@ -2468,6 +2592,7 @@ async function startNewGame(override = {}) {
     clearAvatarBubbles();
     state.chatMessages = [];
     state.unreadChatCount = 0;
+    state.isMobileChatOpen = false;
     state.activePlaySubtab = 'moves';
     const payload =
       mode === 'friend'
@@ -2869,6 +2994,7 @@ function syncFullscreenUi(isFullscreen) {
 
   // Redraw SVG tactical arrows because board pixel dimensions change on fullscreen scaling.
   renderBoardArrows();
+  renderChatPanel(state.game, getViewerColor());
 }
 
 /**
@@ -2944,11 +3070,109 @@ function dismissGameOverModal() {
 }
 
 /**
+ * Attaches pointer dragging and tap-detection handlers to the floating mobile chat bubble.
+ *
+ * @returns {void}
+ */
+function setupMobileChatFabDrag() {
+  const fab = elements.mobileChatFab;
+  if (!fab) {
+    return;
+  }
+
+  let isPointerDown = false;
+  let isDragging = false;
+  let startPointerX = 0;
+  let startPointerY = 0;
+  let startLeft = 0;
+  let startTop = 0;
+  const DRAG_THRESHOLD_PX = 6;
+
+  fab.addEventListener('pointerdown', (event) => {
+    // Only drag with primary mouse button or touch contact.
+    if (event.button !== 0 && event.pointerType === 'mouse') {
+      return;
+    }
+    isPointerDown = true;
+    isDragging = false;
+    startPointerX = event.clientX;
+    startPointerY = event.clientY;
+
+    const rect = fab.getBoundingClientRect();
+    startLeft = rect.left;
+    startTop = rect.top;
+
+    if (typeof fab.setPointerCapture === 'function') {
+      try {
+        fab.setPointerCapture(event.pointerId);
+      } catch {
+        // Ignore pointer capture errors in testing/unsupported environments.
+      }
+    }
+  });
+
+  fab.addEventListener('pointermove', (event) => {
+    if (!isPointerDown) {
+      return;
+    }
+    const dx = event.clientX - startPointerX;
+    const dy = event.clientY - startPointerY;
+
+    if (!isDragging && Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX) {
+      isDragging = true;
+      fab.classList.add('is-dragging');
+    }
+
+    if (isDragging) {
+      const clamped = clampBubblePosition({
+        x: startLeft + dx,
+        y: startTop + dy,
+        bubbleWidth: fab.offsetWidth || 52,
+        bubbleHeight: fab.offsetHeight || 52,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        margin: 12,
+      });
+      state.mobileBubblePos = clamped;
+      fab.style.left = `${clamped.x}px`;
+      fab.style.top = `${clamped.y}px`;
+      fab.style.right = 'auto';
+      fab.style.bottom = 'auto';
+    }
+  });
+
+  const endDrag = (event) => {
+    if (!isPointerDown) {
+      return;
+    }
+    isPointerDown = false;
+    fab.classList.remove('is-dragging');
+
+    if (typeof fab.releasePointerCapture === 'function' && fab.hasPointerCapture?.(event.pointerId)) {
+      try {
+        fab.releasePointerCapture(event.pointerId);
+      } catch {
+        // Ignore pointer release errors.
+      }
+    }
+
+    if (!isDragging) {
+      // Tap detected without drag movement: toggle the chat popup.
+      toggleMobileChat();
+    }
+  };
+
+  fab.addEventListener('pointerup', endDrag);
+  fab.addEventListener('pointercancel', endDrag);
+}
+
+/**
  * Loads bots and time controls from /api/meta, then resumes a friend URL (?game=<id>) or creates an initial bot game.
  *
  * @returns {Promise<void>}
  */
 async function bootstrapApp() {
+  setupMobileChatFabDrag();
   try {
     const meta = await requestJson('/api/meta');
     if (Array.isArray(meta.bots) && meta.bots.length > 0) {
@@ -3018,6 +3242,22 @@ elements.chatForm.addEventListener('submit', (event) => {
   }
 });
 elements.chatQuickBar.addEventListener('click', (event) => {
+  const btn = event.target.closest('.chat-quick-btn');
+  if (!btn) {
+    return;
+  }
+  sendChatText(btn.dataset.chatText ?? '');
+});
+elements.mobileChatCloseBtn?.addEventListener('click', () => toggleMobileChat(false));
+elements.mobileChatForm?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  if (sendChatText(elements.mobileChatInput?.value)) {
+    if (elements.mobileChatInput) {
+      elements.mobileChatInput.value = '';
+    }
+  }
+});
+elements.mobileChatQuickBar?.addEventListener('click', (event) => {
   const btn = event.target.closest('.chat-quick-btn');
   if (!btn) {
     return;
@@ -3102,6 +3342,39 @@ elements.promotionModal.addEventListener('click', (event) => {
     state.selectedSquare = null;
     renderApp();
   }
+});
+
+document.addEventListener('pointerdown', (event) => {
+  if (!state.isMobileChatOpen) {
+    return;
+  }
+  // Dismiss popup when clicking outside both the popup dialog and the floating bubble.
+  if (
+    elements.mobileChatPopup &&
+    !elements.mobileChatPopup.contains(event.target) &&
+    elements.mobileChatFab &&
+    !elements.mobileChatFab.contains(event.target)
+  ) {
+    toggleMobileChat(false);
+  }
+});
+
+window.addEventListener('resize', () => {
+  if (state.mobileBubblePos && elements.mobileChatFab) {
+    const clamped = clampBubblePosition({
+      x: state.mobileBubblePos.x,
+      y: state.mobileBubblePos.y,
+      bubbleWidth: elements.mobileChatFab.offsetWidth || 52,
+      bubbleHeight: elements.mobileChatFab.offsetHeight || 52,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      margin: 12,
+    });
+    state.mobileBubblePos = clamped;
+    elements.mobileChatFab.style.left = `${clamped.x}px`;
+    elements.mobileChatFab.style.top = `${clamped.y}px`;
+  }
+  renderChatPanel(state.game, getViewerColor());
 });
 
 setInterval(updateClockElements, 100);
