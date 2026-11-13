@@ -481,16 +481,16 @@ function renderCompanionBoard(boardGrid, lastMove) {
       const isLight = (row + col) % 2 === 0;
 
       const squareEl = document.createElement('div');
-      squareEl.className = `board-square ${isLight ? 'is-light' : 'is-dark'}`;
+      squareEl.className = `square ${isLight ? 'light' : 'dark'}`;
       squareEl.dataset.square = squareName;
 
       if (lastMove && (squareName === lastMove.from || squareName === lastMove.to)) {
-        squareEl.classList.add('is-last-move');
+        squareEl.classList.add('last-move');
       }
 
       if (piece) {
         const pieceEl = document.createElement('div');
-        pieceEl.className = 'chess-piece';
+        pieceEl.className = 'piece';
         pieceEl.innerHTML = getPieceSvg(piece.color, piece.type);
         squareEl.appendChild(pieceEl);
       }
