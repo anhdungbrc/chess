@@ -14,6 +14,7 @@ import {
   resolveInviteUrl,
   resolveMobileChatBadge,
   resolveMobileChatVisibility,
+  resolveMobileNavToggleMetadata,
   clampBubblePosition,
   resolveSquareFromPoint,
   resolveViewerColor,
@@ -410,5 +411,33 @@ function testMobileChatUiHelpers() {
 }
 
 test('resolveMobileChatVisibility, resolveMobileChatBadge, and clampBubblePosition support floating mobile chat', testMobileChatUiHelpers);
+
+/**
+ * Verifies resolveMobileNavToggleMetadata returns correct presentation metadata, labels, and aria attributes.
+ * Expected: collapsed produces hamburger glyph and ariaExpanded false; expanded produces close glyph and ariaExpanded true.
+ */
+function testMobileNavToggleMetadata() {
+  // When collapsed (default on mobile), shows hamburger glyph with expand title and aria-expanded=false
+  const collapsed = resolveMobileNavToggleMetadata(true);
+  assert.equal(collapsed.isCollapsed, true);
+  assert.equal(collapsed.glyph, '☰');
+  assert.equal(collapsed.label, 'Menu');
+  assert.equal(collapsed.title, 'Expand Menu');
+  assert.equal(collapsed.ariaExpanded, false);
+
+  // When expanded, shows close glyph with collapse title and aria-expanded=true
+  const expanded = resolveMobileNavToggleMetadata(false);
+  assert.equal(expanded.isCollapsed, false);
+  assert.equal(expanded.glyph, '✕');
+  assert.equal(expanded.label, 'Close');
+  assert.equal(expanded.title, 'Collapse Menu');
+  assert.equal(expanded.ariaExpanded, true);
+
+  // Falsy or truthy value handling
+  assert.equal(resolveMobileNavToggleMetadata(undefined).isCollapsed, false);
+  assert.equal(resolveMobileNavToggleMetadata(null).isCollapsed, false);
+}
+
+test('resolveMobileNavToggleMetadata produces accurate mobile navigation toggle presentation metadata', testMobileNavToggleMetadata);
 
 

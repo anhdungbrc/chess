@@ -16,6 +16,7 @@ import {
   resolveInviteUrl,
   resolveMobileChatBadge,
   resolveMobileChatVisibility,
+  resolveMobileNavToggleMetadata,
   resolveSquareFromPoint,
   resolveViewerColor,
 } from './chessUiHelper.js';
@@ -101,6 +102,7 @@ const state = {
   chatMessages: [],
   unreadChatCount: 0,
   isMobileChatOpen: false,
+  isMobileNavCollapsed: true,
   mobileBubblePos: null,
   mobileBubblePulseTimer: null,
   avatarBubbles: {},
@@ -128,6 +130,10 @@ const state = {
 
 const elements = {
   appLayout: document.querySelector('.app-layout'),
+  navRail: document.querySelector('.nav-rail'),
+  railNav: document.getElementById('rail-nav'),
+  navToggleBtn: document.getElementById('nav-toggle-btn'),
+  navToggleGlyph: document.querySelector('.nav-toggle-glyph'),
   navPlayBtn: document.getElementById('nav-play-btn'),
   navBotsBtn: document.getElementById('nav-bots-btn'),
   navFlipBtn: document.getElementById('nav-flip-btn'),
@@ -2060,10 +2066,16 @@ function handleHistoryKeydown(event) {
     // Chess.com standard shortcut: 'F' toggles fullscreen / focus mode.
     event.preventDefault();
     toggleFullscreenMode();
-  } else if ((event.key === 'Escape' || event.key === 'Esc') && state.isFullscreen) {
-    // Escape key exits fullscreen focus mode.
-    event.preventDefault();
-    toggleFullscreenMode();
+  } else if (event.key === 'Escape' || event.key === 'Esc') {
+    if (state.isFullscreen) {
+      // Escape key exits fullscreen focus mode.
+      event.preventDefault();
+      toggleFullscreenMode();
+    } else if (!state.isMobileNavCollapsed && typeof window !== 'undefined' && window.innerWidth <= 780) {
+      // Escape key collapses the expanded mobile navigation menu.
+      event.preventDefault();
+      setMobileNavCollapsed(true);
+    }
   }
 }
 
@@ -2954,6 +2966,45 @@ function toggleSoundMute() {
 }
 
 /**
+ * Synchronizes DOM classes, accessibility attributes, and button labels for mobile navigation menu collapse.
+ *
+ * @param {boolean} isCollapsed - Desired collapsed state.
+ * @returns {void}
+ */
+function setMobileNavCollapsed(isCollapsed) {
+  state.isMobileNavCollapsed = Boolean(isCollapsed);
+  const metadata = resolveMobileNavToggleMetadata(state.isMobileNavCollapsed);
+
+  // Toggle collapsed class on navigation rail to trigger compact mobile header CSS rules.
+  if (elements.navRail) {
+    elements.navRail.classList.toggle('is-collapsed', state.isMobileNavCollapsed);
+  }
+
+  // Synchronize ARIA state, tooltips, and iconography for accessibility.
+  if (elements.navToggleBtn) {
+    elements.navToggleBtn.setAttribute('aria-expanded', String(metadata.ariaExpanded));
+    elements.navToggleBtn.title = metadata.title;
+    elements.navToggleBtn.setAttribute('aria-label', `${metadata.label} navigation`);
+    if (elements.navToggleGlyph) {
+      elements.navToggleGlyph.textContent = metadata.glyph;
+    }
+  }
+}
+
+/**
+ * Collapses the mobile navigation menu if currently on a mobile viewport.
+ * Keeps the board visible immediately after user action.
+ *
+ * @returns {void}
+ */
+function autoCollapseMobileNavOnAction() {
+  // Only auto-collapse on small screens to avoid interfering with desktop multi-column layout.
+  if (typeof window !== 'undefined' && window.innerWidth <= 780 && !state.isMobileNavCollapsed) {
+    setMobileNavCollapsed(true);
+  }
+}
+
+/**
  * Synchronizes DOM classes, accessibility attributes, and button labels for fullscreen focus mode.
  *
  * @param {boolean} isFullscreen - Next fullscreen state.
@@ -3172,6 +3223,7 @@ function setupMobileChatFabDrag() {
  * @returns {Promise<void>}
  */
 async function bootstrapApp() {
+  setMobileNavCollapsed(true);
   setupMobileChatFabDrag();
   try {
     const meta = await requestJson('/api/meta');
@@ -3224,11 +3276,42 @@ async function bootstrapApp() {
   await startNewGame();
 }
 
-elements.navPlayBtn.addEventListener('click', () => setActiveTab('play'));
-elements.navBotsBtn.addEventListener('click', () => setActiveTab('setup'));
-elements.navFlipBtn.addEventListener('click', toggleBoardFlip);
-elements.navSoundBtn.addEventListener('click', toggleSoundMute);
-elements.navFullscreenBtn?.addEventListener('click', toggleFullscreenMode);
+elements.navToggleBtn?.addEventListener('click', () => {
+  setMobileNavCollapsed(!state.isMobileNavCollapsed);
+});
+
+elements.navPlayBtn.addEventListener('click', () => {
+  autoCollapseMobileNavOnAction();
+  setActiveTab('play');
+});
+elements.navBotsBtn.addEventListener('click', () => {
+  autoCollapseMobileNavOnAction();
+  setActiveTab('setup');
+});
+elements.navFlipBtn.addEventListener('click', () => {
+  autoCollapseMobileNavOnAction();
+  toggleBoardFlip();
+});
+elements.navSoundBtn.addEventListener('click', () => {
+  autoCollapseMobileNavOnAction();
+  toggleSoundMute();
+});
+elements.navFullscreenBtn?.addEventListener('click', () => {
+  autoCollapseMobileNavOnAction();
+  toggleFullscreenMode();
+});
+
+document.addEventListener('click', (event) => {
+  if (
+    typeof window !== 'undefined' &&
+    window.innerWidth <= 780 &&
+    !state.isMobileNavCollapsed &&
+    elements.navRail &&
+    !elements.navRail.contains(event.target)
+  ) {
+    setMobileNavCollapsed(true);
+  }
+});
 elements.boardFullscreenBtn?.addEventListener('click', toggleFullscreenMode);
 elements.fullscreenExitBtn?.addEventListener('click', toggleFullscreenMode);
 elements.tabPlayBtn.addEventListener('click', () => setActiveTab('play'));

@@ -510,5 +510,38 @@ export function clampBubblePosition(params) {
   return { x: Math.round(x), y: Math.round(y) };
 }
 
+/**
+ * Resolves presentation labels, glyphs, titles, and ARIA attributes for mobile navigation menu toggle.
+ *
+ * @param {boolean} isCollapsed - Whether the mobile navigation menu is currently collapsed.
+ * @returns {{
+ *   isCollapsed: boolean,
+ *   glyph: string,
+ *   label: string,
+ *   title: string,
+ *   ariaExpanded: boolean,
+ * }} Metadata for rendering the mobile navigation toggle button.
+ */
+export function resolveMobileNavToggleMetadata(isCollapsed) {
+  const collapsed = Boolean(isCollapsed);
+  if (collapsed) {
+    return {
+      isCollapsed: true,
+      glyph: '☰',
+      label: 'Menu',
+      title: 'Expand Menu',
+      ariaExpanded: false,
+    };
+  }
+
+  return {
+    isCollapsed: false,
+    glyph: '✕',
+    label: 'Close',
+    title: 'Collapse Menu',
+    ariaExpanded: true,
+  };
+}
+
 
 

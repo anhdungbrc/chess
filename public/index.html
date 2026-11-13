@@ -9,20 +9,33 @@
   </head>
   <body>
     <div class="app-layout">
-      <aside class="nav-rail" aria-label="Primary navigation">
+      <aside class="nav-rail is-collapsed" aria-label="Primary navigation">
         <div class="brand">
-          <span class="brand-icon" aria-hidden="true">
-            <svg viewBox="0 0 32 32">
-              <path
-                d="M16 4c-2.5 0-4.5 2-4.5 4.5 0 1.4.6 2.6 1.6 3.4-2.1 1.1-3.6 3.2-3.6 5.6 0 1.6.7 3.1 1.8 4.1-2.4 1-4.9 3.8-4.9 7.4h19.2c0-3.6-2.5-6.4-4.9-7.4 1.1-1 1.8-2.5 1.8-4.1 0-2.4-1.5-4.5-3.6-5.6 1-.8 1.6-2 1.6-3.4C20.5 6 18.5 4 16 4z"
-                fill="#81b64c"
-              />
-            </svg>
-          </span>
-          <span class="brand-text">Chess<span class="brand-accent">.play</span></span>
+          <div class="brand-title-wrap">
+            <span class="brand-icon" aria-hidden="true">
+              <svg viewBox="0 0 32 32">
+                <path
+                  d="M16 4c-2.5 0-4.5 2-4.5 4.5 0 1.4.6 2.6 1.6 3.4-2.1 1.1-3.6 3.2-3.6 5.6 0 1.6.7 3.1 1.8 4.1-2.4 1-4.9 3.8-4.9 7.4h19.2c0-3.6-2.5-6.4-4.9-7.4 1.1-1 1.8-2.5 1.8-4.1 0-2.4-1.5-4.5-3.6-5.6 1-.8 1.6-2 1.6-3.4C20.5 6 18.5 4 16 4z"
+                  fill="#81b64c"
+                />
+              </svg>
+            </span>
+            <span class="brand-text">Chess<span class="brand-accent">.play</span></span>
+          </div>
+          <button
+            id="nav-toggle-btn"
+            type="button"
+            class="nav-toggle-btn"
+            aria-label="Toggle navigation menu"
+            aria-controls="rail-nav"
+            aria-expanded="false"
+            title="Expand Menu"
+          >
+            <span class="nav-toggle-glyph" aria-hidden="true">☰</span>
+          </button>
         </div>
 
-        <nav class="rail-nav">
+        <nav id="rail-nav" class="rail-nav">
           <button id="nav-play-btn" type="button" class="rail-btn is-active">
             <span class="rail-glyph" aria-hidden="true">♟</span>
             <span class="rail-label">Play</span>
