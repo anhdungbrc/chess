@@ -9,6 +9,8 @@ import {
   resolveActiveAvatarBubbles,
   resolveAvatarChatBubble,
   resolveChatWsUrl,
+  resolveFullscreenButtonMetadata,
+  resolveFullscreenDimensions,
   resolveInviteUrl,
   resolveSquareFromPoint,
   resolveViewerColor,
@@ -297,4 +299,64 @@ function testAvatarChatBubbleHelpers() {
 }
 
 test('resolveActiveAvatarBubbles and resolveAvatarChatBubble track slot bubbles and expiry', testAvatarChatBubbleHelpers);
+
+/**
+ * Verifies resolveFullscreenButtonMetadata formats button labels and accessible state,
+ * and resolveFullscreenDimensions computes bounded square board dimensions across viewports.
+ * Expected: correct metadata for enter/exit states, responsive board sizes fitting portrait and landscape bounds.
+ */
+function testFullscreenHelpers() {
+  const enterMeta = resolveFullscreenButtonMetadata(false);
+  assert.equal(enterMeta.label, 'Full Screen');
+  assert.equal(enterMeta.title, 'Enter Full Screen (F)');
+  assert.equal(enterMeta.glyph, '⛶');
+  assert.equal(enterMeta.ariaPressed, false);
+
+  const exitMeta = resolveFullscreenButtonMetadata(true);
+  assert.equal(exitMeta.label, 'Exit Full Screen');
+  assert.equal(exitMeta.title, 'Exit Full Screen (Esc)');
+  assert.equal(exitMeta.glyph, '✕');
+  assert.equal(exitMeta.ariaPressed, true);
+
+  // Desktop standard (1200 x 800, no eval bar)
+  const desktopDim = resolveFullscreenDimensions({
+    viewportWidth: 1200,
+    viewportHeight: 800,
+    isMobile: false,
+    isLandscape: false,
+    hasEvalBar: false,
+  });
+  assert.equal(typeof desktopDim.boardSizePx, 'number');
+  assert.ok(desktopDim.boardSizePx > 0 && desktopDim.boardSizePx <= 690);
+  assert.equal(desktopDim.isCompactLayout, false);
+
+  // Mobile portrait (390 x 844)
+  const mobilePortraitDim = resolveFullscreenDimensions({
+    viewportWidth: 390,
+    viewportHeight: 844,
+    isMobile: true,
+    isLandscape: false,
+    hasEvalBar: false,
+  });
+  assert.ok(mobilePortraitDim.boardSizePx > 0 && mobilePortraitDim.boardSizePx <= 374);
+  assert.equal(mobilePortraitDim.isCompactLayout, false);
+
+  // Mobile landscape (844 x 390)
+  const mobileLandscapeDim = resolveFullscreenDimensions({
+    viewportWidth: 844,
+    viewportHeight: 390,
+    isMobile: true,
+    isLandscape: true,
+    hasEvalBar: false,
+  });
+  assert.ok(mobileLandscapeDim.boardSizePx > 0 && mobileLandscapeDim.boardSizePx <= 340);
+  assert.equal(mobileLandscapeDim.isCompactLayout, true);
+
+  // Fallbacks on invalid or zero values
+  const fallbackDim = resolveFullscreenDimensions(null);
+  assert.ok(fallbackDim.boardSizePx >= 280);
+}
+
+test('resolveFullscreenButtonMetadata and resolveFullscreenDimensions compute fullscreen state and geometry', testFullscreenHelpers);
+
 

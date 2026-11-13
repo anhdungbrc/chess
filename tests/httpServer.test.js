@@ -541,6 +541,9 @@ async function testRealPublicChessComAssetsServed() {
     assert.match(html, /id="review-analyze-btn"/);
     assert.match(html, /id="analysis-panel"/);
     assert.match(html, /id="eval-graph"/);
+    assert.match(html, /id="nav-fullscreen-btn"/);
+    assert.match(html, /id="board-fullscreen-btn"/);
+    assert.match(html, /id="fullscreen-exit-btn"/);
 
     const assetsRes = await fetch(`${ctx.baseUrl}/chessAssets.js`);
     assert.equal(assetsRes.status, 200);
@@ -557,6 +560,13 @@ async function testRealPublicChessComAssetsServed() {
     const stockfishClientRes = await fetch(`${ctx.baseUrl}/stockfishClient.js`);
     assert.equal(stockfishClientRes.status, 200);
     assert.match(stockfishClientRes.headers.get('content-type') ?? '', /javascript/);
+
+    const realCssRes = await fetch(`${ctx.baseUrl}/styles.css`);
+    assert.equal(realCssRes.status, 200);
+    const realCss = await realCssRes.text();
+    assert.match(realCss, /\.app-layout\.is-fullscreen/);
+    assert.match(realCss, /\.fullscreen-exit-btn/);
+    assert.match(realCss, /\.board-fullscreen-btn/);
   } finally {
     await ctx.close();
   }

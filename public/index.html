@@ -39,10 +39,30 @@
             <span class="rail-glyph" aria-hidden="true">🔊</span>
             <span class="rail-label" id="sound-label">Sound On</span>
           </button>
+          <button
+            id="nav-fullscreen-btn"
+            type="button"
+            class="rail-btn"
+            aria-pressed="false"
+            title="Enter Full Screen (F)"
+          >
+            <span class="rail-glyph" aria-hidden="true">⛶</span>
+            <span class="rail-label" id="fullscreen-label">Full Screen</span>
+          </button>
         </nav>
       </aside>
 
       <main class="board-stage" aria-label="Chess board stage">
+        <button
+          id="fullscreen-exit-btn"
+          type="button"
+          class="fullscreen-exit-btn"
+          title="Exit Full Screen (Esc)"
+          aria-label="Exit Full Screen"
+          hidden
+        >
+          ✕
+        </button>
         <div id="top-player-card" class="player-card">
           <div class="player-identity">
             <div class="player-avatar-wrap">
@@ -60,7 +80,18 @@
               </div>
             </div>
           </div>
-          <div id="top-clock" class="player-clock" aria-label="Top player clock" hidden></div>
+          <div class="player-status-group">
+            <div id="top-clock" class="player-clock" aria-label="Top player clock" hidden></div>
+            <button
+              id="board-fullscreen-btn"
+              type="button"
+              class="board-icon-btn board-fullscreen-btn"
+              title="Enter Full Screen (F)"
+              aria-label="Toggle Full Screen"
+            >
+              ⛶
+            </button>
+          </div>
         </div>
 
         <div class="board-with-eval">

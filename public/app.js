@@ -10,6 +10,7 @@ import {
   resolveActiveAvatarBubbles,
   resolveAvatarChatBubble,
   resolveChatWsUrl,
+  resolveFullscreenButtonMetadata,
   resolveInviteUrl,
   resolveSquareFromPoint,
   resolveViewerColor,
@@ -85,6 +86,7 @@ const state = {
   activePlaySubtab: 'moves',
   isMuted: false,
   isFlipped: false,
+  isFullscreen: false,
   game: null,
   seatToken: null,
   viewerSlot: null,
@@ -118,11 +120,16 @@ const state = {
 };
 
 const elements = {
+  appLayout: document.querySelector('.app-layout'),
   navPlayBtn: document.getElementById('nav-play-btn'),
   navBotsBtn: document.getElementById('nav-bots-btn'),
   navFlipBtn: document.getElementById('nav-flip-btn'),
   navSoundBtn: document.getElementById('nav-sound-btn'),
   soundLabel: document.getElementById('sound-label'),
+  navFullscreenBtn: document.getElementById('nav-fullscreen-btn'),
+  fullscreenLabel: document.getElementById('fullscreen-label'),
+  boardFullscreenBtn: document.getElementById('board-fullscreen-btn'),
+  fullscreenExitBtn: document.getElementById('fullscreen-exit-btn'),
   topAvatar: document.getElementById('top-avatar'),
   topAvatarBubble: document.getElementById('top-avatar-bubble'),
   topName: document.getElementById('top-name'),
@@ -2030,6 +2037,14 @@ function handleHistoryKeydown(event) {
   } else if (event.key === 'ArrowRight') {
     event.preventDefault();
     stepReviewForward();
+  } else if (event.key === 'f' || event.key === 'F') {
+    // Chess.com standard shortcut: 'F' toggles fullscreen / focus mode.
+    event.preventDefault();
+    toggleFullscreenMode();
+  } else if ((event.key === 'Escape' || event.key === 'Esc') && state.isFullscreen) {
+    // Escape key exits fullscreen focus mode.
+    event.preventDefault();
+    toggleFullscreenMode();
   }
 }
 
@@ -2814,6 +2829,84 @@ function toggleSoundMute() {
 }
 
 /**
+ * Synchronizes DOM classes, accessibility attributes, and button labels for fullscreen focus mode.
+ *
+ * @param {boolean} isFullscreen - Next fullscreen state.
+ * @returns {void}
+ */
+function syncFullscreenUi(isFullscreen) {
+  state.isFullscreen = Boolean(isFullscreen);
+  const metadata = resolveFullscreenButtonMetadata(state.isFullscreen);
+
+  if (elements.appLayout) {
+    elements.appLayout.classList.toggle('is-fullscreen', state.isFullscreen);
+  }
+  document.body.classList.toggle('has-fullscreen-board', state.isFullscreen);
+
+  if (elements.fullscreenExitBtn) {
+    elements.fullscreenExitBtn.hidden = !state.isFullscreen;
+  }
+
+  if (elements.navFullscreenBtn) {
+    elements.navFullscreenBtn.setAttribute('aria-pressed', String(metadata.ariaPressed));
+    elements.navFullscreenBtn.title = metadata.title;
+    const glyphSpan = elements.navFullscreenBtn.querySelector('.rail-glyph');
+    if (glyphSpan) {
+      glyphSpan.textContent = metadata.glyph;
+    }
+  }
+
+  if (elements.fullscreenLabel) {
+    elements.fullscreenLabel.textContent = metadata.label;
+  }
+
+  if (elements.boardFullscreenBtn) {
+    elements.boardFullscreenBtn.textContent = metadata.glyph;
+    elements.boardFullscreenBtn.title = metadata.title;
+    elements.boardFullscreenBtn.setAttribute('aria-label', metadata.title);
+    elements.boardFullscreenBtn.classList.toggle('is-active', state.isFullscreen);
+  }
+
+  // Redraw SVG tactical arrows because board pixel dimensions change on fullscreen scaling.
+  renderBoardArrows();
+}
+
+/**
+ * Toggles fullscreen focus mode, safely requesting browser hardware fullscreen where supported.
+ * Falls back cleanly to CSS Focus Mode on platforms lacking Element Fullscreen (e.g. iOS Safari).
+ *
+ * @returns {Promise<void>}
+ */
+async function toggleFullscreenMode() {
+  const isCurrentlyNative = Boolean(
+    document.fullscreenElement || document.webkitFullscreenElement
+  );
+  const nextFullscreen = !(state.isFullscreen || isCurrentlyNative);
+
+  // Update UI presentation immediately so CSS focus mode responds without visual lag.
+  syncFullscreenUi(nextFullscreen);
+
+  try {
+    if (nextFullscreen) {
+      const docEl = document.documentElement;
+      if (typeof docEl.requestFullscreen === 'function') {
+        await docEl.requestFullscreen().catch(() => {});
+      } else if (typeof docEl.webkitRequestFullscreen === 'function') {
+        docEl.webkitRequestFullscreen();
+      }
+    } else if (isCurrentlyNative) {
+      if (typeof document.exitFullscreen === 'function') {
+        await document.exitFullscreen().catch(() => {});
+      } else if (typeof document.webkitExitFullscreen === 'function') {
+        document.webkitExitFullscreen();
+      }
+    }
+  } catch {
+    // Ignore browser fullscreen API rejection (e.g. user gesture timeouts or iframe sandbox); CSS focus mode remains active.
+  }
+}
+
+/**
  * Updates the selected setup mode ('bot' or 'friend') and ensures valid side selection.
  *
  * @param {'bot' | 'friend'} mode - Selected game mode.
@@ -2911,6 +3004,9 @@ elements.navPlayBtn.addEventListener('click', () => setActiveTab('play'));
 elements.navBotsBtn.addEventListener('click', () => setActiveTab('setup'));
 elements.navFlipBtn.addEventListener('click', toggleBoardFlip);
 elements.navSoundBtn.addEventListener('click', toggleSoundMute);
+elements.navFullscreenBtn?.addEventListener('click', toggleFullscreenMode);
+elements.boardFullscreenBtn?.addEventListener('click', toggleFullscreenMode);
+elements.fullscreenExitBtn?.addEventListener('click', toggleFullscreenMode);
 elements.tabPlayBtn.addEventListener('click', () => setActiveTab('play'));
 elements.tabSetupBtn.addEventListener('click', () => setActiveTab('setup'));
 elements.subtabMovesBtn.addEventListener('click', () => setPlaySubtab('moves'));
@@ -2982,6 +3078,18 @@ document.addEventListener('pointermove', handlePointerMove);
 document.addEventListener('pointerup', handlePointerUp);
 document.addEventListener('pointercancel', clearDragState);
 document.addEventListener('keydown', handleHistoryKeydown);
+document.addEventListener('fullscreenchange', () => {
+  const isNative = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+  if (!isNative && state.isFullscreen) {
+    syncFullscreenUi(false);
+  }
+});
+document.addEventListener('webkitfullscreenchange', () => {
+  const isNative = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+  if (!isNative && state.isFullscreen) {
+    syncFullscreenUi(false);
+  }
+});
 
 elements.promotionCancelBtn.addEventListener('click', () => {
   closePromotionModal();

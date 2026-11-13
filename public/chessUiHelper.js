@@ -365,3 +365,79 @@ export function applyOptimisticMove(game, { from, to, promotion } = {}) {
   };
 }
 
+/**
+ * Resolves localized labels, icons, and accessible attributes for fullscreen toggle buttons.
+ *
+ * @param {boolean} isFullscreen - Current fullscreen active state.
+ * @returns {{
+ *   label: string,
+ *   title: string,
+ *   glyph: string,
+ *   ariaPressed: boolean,
+ * }} Button presentation and accessibility metadata.
+ */
+export function resolveFullscreenButtonMetadata(isFullscreen) {
+  if (isFullscreen) {
+    return {
+      label: 'Exit Full Screen',
+      title: 'Exit Full Screen (Esc)',
+      glyph: '✕',
+      ariaPressed: true,
+    };
+  }
+  return {
+    label: 'Full Screen',
+    title: 'Enter Full Screen (F)',
+    glyph: '⛶',
+    ariaPressed: false,
+  };
+}
+
+/**
+ * Computes bounded square chessboard dimensions and layout mode to maximize viewport usage in fullscreen.
+ *
+ * @param {{
+ *   viewportWidth?: number,
+ *   viewportHeight?: number,
+ *   isMobile?: boolean,
+ *   isLandscape?: boolean,
+ *   hasEvalBar?: boolean,
+ * } | null | undefined} options - Viewport geometry and active layout flags.
+ * @returns {{
+ *   boardSizePx: number,
+ *   isCompactLayout: boolean,
+ * }} Sized square pixel width/height and layout compactness flag.
+ */
+export function resolveFullscreenDimensions(options) {
+  const width = Math.max(0, Number(options?.viewportWidth) || 0);
+  const height = Math.max(0, Number(options?.viewportHeight) || 0);
+  const isMobile = Boolean(options?.isMobile);
+  const isLandscape = Boolean(options?.isLandscape);
+  const hasEvalBar = Boolean(options?.hasEvalBar);
+
+  // Fallback defaults for missing or unmeasured viewports.
+  if (width <= 0 || height <= 0) {
+    return { boardSizePx: 640, isCompactLayout: false };
+  }
+
+  // Account for non-board UI chrome (player cards, margins, eval bar).
+  const evalBarWidth = hasEvalBar ? 36 : 0;
+  const horizontalPadding = isMobile ? (isLandscape ? 24 : 16) : 48;
+  const maxAvailableWidth = Math.max(280, width - evalBarWidth - horizontalPadding);
+
+  // Vertical chrome: player cards (~40-44px each) + gaps (~16-24px total).
+  // In mobile landscape, cards are ultra-compact (~24px each) or stacked beside the board.
+  const isCompactLayout = isMobile && isLandscape;
+  const verticalChrome = isCompactLayout ? 56 : (isMobile ? 104 : 116);
+  const maxAvailableHeight = Math.max(280, height - verticalChrome);
+
+  // Chessboards are strictly 1:1 square. Clamp to the smaller dimension.
+  const boardSizePx = Math.floor(Math.min(maxAvailableWidth, maxAvailableHeight));
+
+  return {
+    boardSizePx: Math.max(280, boardSizePx),
+    isCompactLayout,
+  };
+}
+
+
