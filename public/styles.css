@@ -796,6 +796,37 @@ body {
   box-shadow: 0 0 0 1px var(--green-primary);
 }
 
+.settings-sound-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.settings-sound-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.settings-sound-btn.is-muted {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+}
+
+.settings-sound-icon {
+  font-size: 1.1rem;
+}
+
 .settings-actions {
   display: flex;
   flex-direction: column;
@@ -1703,8 +1734,8 @@ body {
   }
 
   .nav-rail:not(.is-collapsed) .rail-btn {
-    flex: 1 1 calc(50% - 6px);
-    min-width: 130px;
+    flex: 1 1 calc(33.333% - 6px);
+    min-width: 100px;
     padding: 9px 12px;
     background: var(--bg-card);
     border: 1px solid var(--border-subtle);

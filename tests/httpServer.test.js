@@ -541,8 +541,11 @@ async function testRealPublicChessComAssetsServed() {
     assert.match(html, /id="review-analyze-btn"/);
     assert.match(html, /id="analysis-panel"/);
     assert.match(html, /id="eval-graph"/);
-    assert.match(html, /id="nav-fullscreen-btn"/);
     assert.match(html, /id="board-fullscreen-btn"/);
+    assert.match(html, /id="settings-sound-btn"/);
+    assert.doesNotMatch(html, /id="nav-fullscreen-btn"/);
+    assert.doesNotMatch(html, /id="nav-flip-btn"/);
+    assert.doesNotMatch(html, /id="nav-sound-btn"/);
     assert.match(html, /id="nav-toggle-btn"/);
     assert.match(html, /id="rail-nav"/);
     assert.match(html, /id="fullscreen-exit-btn"/);

@@ -105,6 +105,7 @@ test('t() translates UI strings accurately for active language', () => {
   assert.equal(t('nav.settings'), 'Cài đặt');
   assert.equal(t('modal.settings.title'), 'Cài đặt');
   assert.equal(t('modal.settings.language'), 'Ngôn ngữ');
+  assert.equal(t('modal.settings.sound'), 'Âm thanh');
 
   setLanguage('en', storage);
   assert.equal(t('nav.play'), 'Play');
@@ -112,6 +113,7 @@ test('t() translates UI strings accurately for active language', () => {
   assert.equal(t('nav.settings'), 'Settings');
   assert.equal(t('modal.settings.title'), 'Settings');
   assert.equal(t('modal.settings.language'), 'Language');
+  assert.equal(t('modal.settings.sound'), 'Sound');
 
   // Reset to vi.
   setLanguage('vi', storage);

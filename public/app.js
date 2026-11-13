@@ -142,11 +142,6 @@ const elements = {
   navToggleGlyph: document.querySelector('.nav-toggle-glyph'),
   navPlayBtn: document.getElementById('nav-play-btn'),
   navBotsBtn: document.getElementById('nav-bots-btn'),
-  navFlipBtn: document.getElementById('nav-flip-btn'),
-  navSoundBtn: document.getElementById('nav-sound-btn'),
-  soundLabel: document.getElementById('sound-label'),
-  navFullscreenBtn: document.getElementById('nav-fullscreen-btn'),
-  fullscreenLabel: document.getElementById('fullscreen-label'),
   navSettingsBtn: document.getElementById('nav-settings-btn'),
   settingsLabel: document.getElementById('settings-label'),
   boardFullscreenBtn: document.getElementById('board-fullscreen-btn'),
@@ -264,6 +259,9 @@ const elements = {
   settingsModal: document.getElementById('settings-modal'),
   settingsCloseBtn: document.getElementById('settings-close-btn'),
   settingsDoneBtn: document.getElementById('settings-done-btn'),
+  settingsSoundBtn: document.getElementById('settings-sound-btn'),
+  settingsSoundIcon: document.getElementById('settings-sound-icon'),
+  settingsSoundLabel: document.getElementById('settings-sound-label'),
   langViBtn: document.getElementById('lang-vi-btn'),
   langEnBtn: document.getElementById('lang-en-btn'),
 };
@@ -1683,17 +1681,9 @@ function applyLanguage(lang) {
     }
   });
 
-  if (elements.soundLabel) {
-    elements.soundLabel.textContent = state.isMuted ? t('nav.soundOff') : t('nav.soundOn');
-  }
+  syncSoundUi();
 
   const fsMeta = resolveFullscreenButtonMetadata(state.isFullscreen, lang);
-  if (elements.fullscreenLabel) {
-    elements.fullscreenLabel.textContent = fsMeta.label;
-  }
-  if (elements.navFullscreenBtn) {
-    elements.navFullscreenBtn.title = fsMeta.title;
-  }
   if (elements.boardFullscreenBtn) {
     elements.boardFullscreenBtn.title = fsMeta.title;
   }
@@ -3093,14 +3083,32 @@ function toggleBoardFlip() {
 }
 
 /**
- * Toggles synthesized sound effects on or off.
+ * Synchronizes the sound toggle button state and iconography with current mute setting.
+ *
+ * @returns {void}
+ */
+function syncSoundUi() {
+  // Reflect state on the settings modal sound control
+  if (elements.settingsSoundBtn) {
+    elements.settingsSoundBtn.setAttribute('aria-pressed', String(!state.isMuted));
+    elements.settingsSoundBtn.classList.toggle('is-muted', state.isMuted);
+  }
+  if (elements.settingsSoundIcon) {
+    elements.settingsSoundIcon.textContent = state.isMuted ? '🔇' : '🔊';
+  }
+  if (elements.settingsSoundLabel) {
+    elements.settingsSoundLabel.textContent = state.isMuted ? t('nav.soundOff') : t('nav.soundOn');
+  }
+}
+
+/**
+ * Toggles synthesized sound effects on or off and updates settings modal sound controls.
  *
  * @returns {void}
  */
 function toggleSoundMute() {
   state.isMuted = !state.isMuted;
-  elements.navSoundBtn.setAttribute('aria-pressed', String(!state.isMuted));
-  elements.soundLabel.textContent = state.isMuted ? t('nav.soundOff') : t('nav.soundOn');
+  syncSoundUi();
 }
 
 /**
@@ -3159,19 +3167,6 @@ function syncFullscreenUi(isFullscreen) {
 
   if (elements.fullscreenExitBtn) {
     elements.fullscreenExitBtn.hidden = !state.isFullscreen;
-  }
-
-  if (elements.navFullscreenBtn) {
-    elements.navFullscreenBtn.setAttribute('aria-pressed', String(metadata.ariaPressed));
-    elements.navFullscreenBtn.title = metadata.title;
-    const glyphSpan = elements.navFullscreenBtn.querySelector('.rail-glyph');
-    if (glyphSpan) {
-      glyphSpan.textContent = metadata.glyph;
-    }
-  }
-
-  if (elements.fullscreenLabel) {
-    elements.fullscreenLabel.textContent = metadata.label;
   }
 
   if (elements.boardFullscreenBtn) {
@@ -3428,21 +3423,12 @@ elements.navBotsBtn.addEventListener('click', () => {
   autoCollapseMobileNavOnAction();
   setActiveTab('setup');
 });
-elements.navFlipBtn.addEventListener('click', () => {
-  autoCollapseMobileNavOnAction();
-  toggleBoardFlip();
-});
-elements.navSoundBtn.addEventListener('click', () => {
-  autoCollapseMobileNavOnAction();
-  toggleSoundMute();
-});
-elements.navFullscreenBtn?.addEventListener('click', () => {
-  autoCollapseMobileNavOnAction();
-  toggleFullscreenMode();
-});
 elements.navSettingsBtn?.addEventListener('click', () => {
   autoCollapseMobileNavOnAction();
   openSettingsModal();
+});
+elements.settingsSoundBtn?.addEventListener('click', () => {
+  toggleSoundMute();
 });
 elements.settingsCloseBtn?.addEventListener('click', () => {
   closeSettingsModal();

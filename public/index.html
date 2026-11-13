@@ -45,25 +45,6 @@
             <span class="rail-glyph" aria-hidden="true">🤖</span>
             <span class="rail-label" data-i18n="nav.bots">Chọn Bot</span>
           </button>
-          <button id="nav-flip-btn" type="button" class="rail-btn">
-            <span class="rail-glyph" aria-hidden="true">⇅</span>
-            <span class="rail-label" data-i18n="nav.flip">Xoay bàn cờ</span>
-          </button>
-          <button id="nav-sound-btn" type="button" class="rail-btn" aria-pressed="true">
-            <span class="rail-glyph" aria-hidden="true">🔊</span>
-            <span class="rail-label" id="sound-label" data-i18n="nav.soundOn">Bật âm thanh</span>
-          </button>
-          <button
-            id="nav-fullscreen-btn"
-            type="button"
-            class="rail-btn"
-            aria-pressed="false"
-            title="Bật toàn màn hình (F)"
-            data-i18n-title="nav.fullscreenTitle"
-          >
-            <span class="rail-glyph" aria-hidden="true">⛶</span>
-            <span class="rail-label" id="fullscreen-label" data-i18n="nav.fullscreen">Toàn màn hình</span>
-          </button>
           <button
             id="nav-settings-btn"
             type="button"
@@ -246,6 +227,18 @@
                       <span>🇬🇧 English</span>
                     </button>
                   </div>
+                </div>
+                <div class="settings-section">
+                  <label class="settings-label" data-i18n="modal.settings.sound">Âm thanh</label>
+                  <button
+                    id="settings-sound-btn"
+                    type="button"
+                    class="settings-sound-btn"
+                    aria-pressed="true"
+                  >
+                    <span id="settings-sound-icon" class="settings-sound-icon" aria-hidden="true">🔊</span>
+                    <span id="settings-sound-label" data-i18n="nav.soundOn">Bật âm thanh</span>
+                  </button>
                 </div>
               </div>
               <div class="settings-actions">
