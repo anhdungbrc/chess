@@ -2111,3 +2111,85 @@ body.has-fullscreen-board {
   }
 }
 
+/* Companion Live Sync Styles */
+.companion-status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.companion-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
+  flex-shrink: 0;
+}
+
+.status-dot.is-synced {
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
+.companion-bestmove-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(129, 182, 76, 0.15);
+  border: 1px solid rgba(129, 182, 76, 0.4);
+}
+
+.companion-bestmove-label {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #81b64c;
+}
+
+.companion-eval-text {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.companion-instruction-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.companion-step-text {
+  font-size: 0.86rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.bookmarklet-btn-wrap {
+  display: flex;
+  margin: 4px 0;
+}
+
+.bookmarklet-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  font-weight: 700;
+  cursor: grab;
+}
+
+

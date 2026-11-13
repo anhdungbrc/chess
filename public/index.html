@@ -46,6 +46,18 @@
             <span class="rail-label" data-i18n="nav.bots">Chọn Bot</span>
           </button>
           <button
+            id="nav-companion-btn"
+            type="button"
+            class="rail-btn"
+            aria-label="Đồng bộ Chess.com"
+            title="Đồng bộ Chess.com"
+            data-i18n-title="nav.companion"
+            data-i18n-aria="nav.companion"
+          >
+            <span class="rail-glyph" aria-hidden="true">🔄</span>
+            <span class="rail-label" data-i18n="nav.companion">Đồng bộ</span>
+          </button>
+          <button
             id="nav-settings-btn"
             type="button"
             class="rail-btn"
@@ -295,6 +307,16 @@
             data-i18n="tab.setup"
           >
             Ván mới
+          </button>
+          <button
+            id="tab-companion-btn"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            class="panel-tab"
+            data-i18n="nav.companion"
+          >
+            Đồng bộ
           </button>
         </div>
 
@@ -613,6 +635,36 @@
           <button id="new-game-btn" type="button" class="btn btn-green btn-play-cta" data-i18n="setup.playBtn">
             Bắt đầu chơi
           </button>
+        </section>
+
+        <section id="panel-companion-view" class="panel-body" hidden>
+          <div class="setup-section">
+            <h2 class="setup-heading" data-i18n="companion.title">Trợ lý Đồng bộ Chess.com</h2>
+            <div class="companion-status-card">
+              <div class="companion-status-indicator">
+                <span id="companion-status-dot" class="status-dot"></span>
+                <span id="companion-status-text" data-i18n="companion.statusWaiting">Đang đợi thế cờ từ Chess.com...</span>
+              </div>
+              <div id="companion-bestmove-box" class="companion-bestmove-box" hidden>
+                <div id="companion-bestmove-label" class="companion-bestmove-label"></div>
+                <div id="companion-eval-text" class="companion-eval-text"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="setup-section companion-instruction-section">
+            <h2 class="setup-heading" data-i18n="companion.howToUse">Hướng dẫn kết nối</h2>
+            <p class="companion-step-text" data-i18n="companion.step1">1. Kéo nút Bookmarklet này vào thanh dấu trang trình duyệt:</p>
+            <div class="bookmarklet-btn-wrap">
+              <a id="companion-bookmarklet-link" href="#" class="btn btn-accent bookmarklet-btn" draggable="true" data-i18n="companion.bookmarkletBtn">
+                ♟ Sync Chess.com
+              </a>
+            </div>
+            <p class="companion-step-text" data-i18n="companion.step2">2. Mở ván cờ trên Chess.com và bấm vào Bookmarklet.</p>
+            <button id="companion-copy-script-btn" type="button" class="btn btn-dark btn-compact" data-i18n="companion.copyScript">
+              Sao chép mã
+            </button>
+          </div>
         </section>
       </aside>
     </div>

@@ -1,5 +1,9 @@
 import { findBotProfile } from '../domain/botProfiles.js';
 import { findTimeControl } from '../domain/timeControls.js';
+import {
+  CompanionValidationError,
+  parseCompanionSnapshot,
+} from '../domain/companionDomain.js';
 
 const VALID_MODES = new Set(['bot', 'friend']);
 const VALID_COLORS = new Set(['w', 'b']);
@@ -223,3 +227,28 @@ export function validateChatMessageInput(payload) {
   }
   return { text: trimmed };
 }
+
+/**
+ * Validates incoming companion sync payload from Chess.com relay script.
+ *
+ * @param {unknown} payload - Parsed JSON request body.
+ * @returns {{
+ *   fen: string,
+ *   orientation: 'white' | 'black',
+ *   turn: 'w' | 'b',
+ *   lastMove: { from: string, to: string } | null,
+ *   timestamp: number,
+ * }} Validated companion snapshot.
+ * @throws {ValidationError} When payload fails structural or domain validation.
+ */
+export function validateCompanionSyncInput(payload) {
+  try {
+    return parseCompanionSnapshot(payload);
+  } catch (err) {
+    if (err instanceof CompanionValidationError) {
+      throw new ValidationError(err.message);
+    }
+    throw err;
+  }
+}
+

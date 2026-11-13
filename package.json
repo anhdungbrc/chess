@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/main.js",
     "test": "node --test",
-    "check": "node --check src/main.js && node --check src/domain/aiEngine.js && node --check src/domain/botProfiles.js && node --check src/domain/timeControls.js && node --check src/service/gameService.js && node --check src/server/validators.js && node --check src/server/chatWs.js && node --check src/server/httpServer.js && node --check public/i18n.js && node --check public/analysisHelper.js && node --check public/stockfishClient.js && node --check public/reviewHelper.js && node --check public/chessUiHelper.js && node --check public/chessAssets.js && node --check public/app.js"
+    "check": "node --check src/main.js && node --check src/domain/aiEngine.js && node --check src/domain/botProfiles.js && node --check src/domain/timeControls.js && node --check src/domain/companionDomain.js && node --check src/service/gameService.js && node --check src/service/companionService.js && node --check src/server/validators.js && node --check src/server/chatWs.js && node --check src/server/httpServer.js && node --check public/i18n.js && node --check public/analysisHelper.js && node --check public/stockfishClient.js && node --check public/reviewHelper.js && node --check public/companionHelper.js && node --check public/companionUiHelper.js && node --check public/chessUiHelper.js && node --check public/chessAssets.js && node --check public/app.js"
   },
   "dependencies": {
     "chess.js": "^1.4.0",

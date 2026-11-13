@@ -1,12 +1,22 @@
-import { formatEvalScore, uciToMoveSquares } from './analysisHelper.js';
+import { evalToWinPercent, formatEvalScore, uciToMoveSquares } from './analysisHelper.js';
 import { createStockfishAnalyzer } from './stockfishClient.js';
-import { formatReviewMoveLabel, resolveReviewViewState } from './reviewHelper.js';
+import { formatReviewMoveLabel, parseFenBoard, resolveReviewViewState } from './reviewHelper.js';
 import {
   initI18n,
   getLanguage,
   setLanguage,
   t,
 } from './i18n.js';
+import {
+  generateBookmarklet,
+  generateRelayScript,
+} from './companionHelper.js';
+import {
+  formatBestMoveHint,
+  formatCompanionStatus,
+  resolveCompanionBoardOrientation,
+  shouldTriggerAnalysis,
+} from './companionUiHelper.js';
 import {
   applyOptimisticMove,
   canInteractWithBoard,
@@ -132,6 +142,9 @@ const state = {
   analysis: null,
   analysisKey: null,
   analysisProgress: null,
+  companionSnapshot: null,
+  companionEventSource: null,
+  companionAnalysisAbortController: null,
 };
 
 const elements = {
@@ -181,8 +194,18 @@ const elements = {
   errorBanner: document.getElementById('error-banner'),
   tabPlayBtn: document.getElementById('tab-play-btn'),
   tabSetupBtn: document.getElementById('tab-setup-btn'),
+  tabCompanionBtn: document.getElementById('tab-companion-btn'),
+  navCompanionBtn: document.getElementById('nav-companion-btn'),
   panelPlayView: document.getElementById('panel-play-view'),
   panelSetupView: document.getElementById('panel-setup-view'),
+  panelCompanionView: document.getElementById('panel-companion-view'),
+  companionStatusDot: document.getElementById('companion-status-dot'),
+  companionStatusText: document.getElementById('companion-status-text'),
+  companionBestmoveBox: document.getElementById('companion-bestmove-box'),
+  companionBestmoveLabel: document.getElementById('companion-bestmove-label'),
+  companionEvalText: document.getElementById('companion-eval-text'),
+  companionBookmarkletLink: document.getElementById('companion-bookmarklet-link'),
+  companionCopyScriptBtn: document.getElementById('companion-copy-script-btn'),
   modeBotBtn: document.getElementById('mode-bot-btn'),
   modeFriendBtn: document.getElementById('mode-friend-btn'),
   botSetupSection: document.getElementById('bot-setup-section'),
@@ -357,22 +380,311 @@ async function requestJson(url, options = {}) {
 }
 
 /**
- * Switches the active right-hand panel tab between live play and new game setup.
+ * Switches the active right-hand panel tab between live play, new game setup, and companion sync.
  *
- * @param {'play' | 'setup'} tabName - Target panel tab.
+ * @param {'play' | 'setup' | 'companion'} tabName - Target panel tab.
  * @returns {void}
  */
 function setActiveTab(tabName) {
   state.activeTab = tabName;
   const isPlay = tabName === 'play';
+  const isSetup = tabName === 'setup';
+  const isCompanion = tabName === 'companion';
+
   elements.panelPlayView.hidden = !isPlay;
-  elements.panelSetupView.hidden = isPlay;
-  elements.tabPlayBtn.classList.toggle('is-active', isPlay);
-  elements.tabPlayBtn.setAttribute('aria-selected', String(isPlay));
-  elements.tabSetupBtn.classList.toggle('is-active', !isPlay);
-  elements.tabSetupBtn.setAttribute('aria-selected', String(!isPlay));
-  elements.navPlayBtn.classList.toggle('is-active', isPlay);
-  elements.navBotsBtn.classList.toggle('is-active', !isPlay);
+  elements.panelSetupView.hidden = !isSetup;
+  if (elements.panelCompanionView) {
+    elements.panelCompanionView.hidden = !isCompanion;
+  }
+
+  elements.tabPlayBtn?.classList.toggle('is-active', isPlay);
+  elements.tabPlayBtn?.setAttribute('aria-selected', String(isPlay));
+  elements.tabSetupBtn?.classList.toggle('is-active', isSetup);
+  elements.tabSetupBtn?.setAttribute('aria-selected', String(isSetup));
+  elements.tabCompanionBtn?.classList.toggle('is-active', isCompanion);
+  elements.tabCompanionBtn?.setAttribute('aria-selected', String(isCompanion));
+
+  elements.navPlayBtn?.classList.toggle('is-active', isPlay);
+  elements.navBotsBtn?.classList.toggle('is-active', isSetup);
+  elements.navCompanionBtn?.classList.toggle('is-active', isCompanion);
+
+  if (isCompanion) {
+    startCompanionSync();
+  }
+}
+
+/**
+ * Connects to the real-time companion SSE stream and initializes bookmarklet links.
+ *
+ * @returns {void}
+ */
+function startCompanionSync() {
+  if (elements.companionBookmarkletLink) {
+    elements.companionBookmarkletLink.href = generateBookmarklet(window.location.origin);
+  }
+
+  if (state.companionEventSource) {
+    return;
+  }
+
+  const sseUrl = '/api/companion/events';
+  state.companionEventSource = new EventSource(sseUrl);
+
+  state.companionEventSource.addEventListener('companion:snapshot', (event) => {
+    try {
+      const snapshot = JSON.parse(event.data);
+      handleCompanionSnapshot(snapshot);
+    } catch (err) {
+      console.error('Failed to parse initial companion snapshot:', err);
+    }
+  });
+
+  state.companionEventSource.addEventListener('companion:update', (event) => {
+    try {
+      const snapshot = JSON.parse(event.data);
+      handleCompanionSnapshot(snapshot);
+    } catch (err) {
+      console.error('Failed to parse companion update:', err);
+    }
+  });
+
+  state.companionEventSource.onerror = () => {
+    if (elements.companionStatusText) {
+      elements.companionStatusText.textContent =
+        getLanguage() === 'en'
+          ? 'Reconnecting companion stream...'
+          : 'Đang kết nối lại luồng đồng bộ...';
+    }
+    elements.companionStatusDot?.classList.remove('is-synced');
+  };
+}
+
+/**
+ * Renders the companion board from an 8x8 matrix and highlights the last move.
+ *
+ * @param {Array<Array<{ square: string, type: string, color: 'w' | 'b' } | null>>} boardGrid - Board matrix.
+ * @param {{ from: string, to: string } | null} lastMove - Coordinate pair of last move.
+ * @returns {void}
+ */
+function renderCompanionBoard(boardGrid, lastMove) {
+  elements.board.innerHTML = '';
+  elements.board.classList.remove('is-reviewing');
+  const rowOrder = state.isFlipped ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
+  const colOrder = state.isFlipped ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
+
+  for (let visualRow = 0; visualRow < 8; visualRow += 1) {
+    const row = rowOrder[visualRow];
+    for (let visualCol = 0; visualCol < 8; visualCol += 1) {
+      const col = colOrder[visualCol];
+      const squareName = `${FILES[col]}${8 - row}`;
+      const piece = boardGrid[row]?.[col];
+      const isLight = (row + col) % 2 === 0;
+
+      const squareEl = document.createElement('div');
+      squareEl.className = `board-square ${isLight ? 'is-light' : 'is-dark'}`;
+      squareEl.dataset.square = squareName;
+
+      if (lastMove && (squareName === lastMove.from || squareName === lastMove.to)) {
+        squareEl.classList.add('is-last-move');
+      }
+
+      if (piece) {
+        const pieceEl = document.createElement('div');
+        pieceEl.className = 'chess-piece';
+        pieceEl.innerHTML = getPieceSvg(piece.color, piece.type);
+        squareEl.appendChild(pieceEl);
+      }
+
+      elements.board.appendChild(squareEl);
+    }
+  }
+}
+
+/**
+ * Draws the best move recommendation arrow onto the board overlay.
+ *
+ * @param {string | null} bestMoveUci - UCI string like 'e7e5' or null.
+ * @returns {void}
+ */
+function renderCompanionBestMoveArrow(bestMoveUci) {
+  elements.boardArrows.innerHTML = '';
+  if (!bestMoveUci) {
+    return;
+  }
+  const squares = uciToMoveSquares(bestMoveUci);
+  if (!squares?.from || !squares?.to) {
+    return;
+  }
+
+  const squareCenter = (squareName) => {
+    const fileIdx = FILES.indexOf(squareName[0]);
+    const rankNum = Number(squareName[1]);
+    const row = 8 - rankNum;
+    const visualCol = state.isFlipped ? 7 - fileIdx : fileIdx;
+    const visualRow = state.isFlipped ? 7 - row : row;
+    return {
+      x: visualCol * 100 + 50,
+      y: visualRow * 100 + 50,
+    };
+  };
+
+  appendBoardArrow(
+    'chess-best-arrow-head',
+    'rgba(129, 182, 76, 0.9)',
+    squareCenter(squares.from),
+    squareCenter(squares.to)
+  );
+}
+
+/**
+ * Updates the Eval Bar for companion evaluation scores.
+ *
+ * @param {{ cp: number | null, mate: number | null } | null} evaluation - Centipawn / mate evaluation.
+ * @param {'w' | 'b'} turnColor - Active turn.
+ * @returns {void}
+ */
+function renderCompanionEval(evaluation, turnColor) {
+  if (!evaluation) {
+    elements.evalBar.hidden = true;
+    return;
+  }
+  const rawWin = evalToWinPercent(evaluation, turnColor);
+  const isDecided = typeof evaluation?.mate === 'number' && evaluation.mate !== 0;
+  const whiteHeight = isDecided ? (evaluation.mate > 0 ? 100 : 0) : Math.max(4, Math.min(96, rawWin));
+  const whiteAhead = rawWin >= 50;
+  const placeAtBottom = state.isFlipped ? !whiteAhead : whiteAhead;
+
+  elements.evalBar.hidden = false;
+  elements.evalBar.classList.toggle('is-flipped', state.isFlipped);
+  elements.evalBarFill.style.height = `${whiteHeight.toFixed(1)}%`;
+  elements.evalBarScore.textContent = formatEvalScore(evaluation, turnColor);
+  elements.evalBarScore.classList.toggle('is-bottom', placeAtBottom);
+  elements.evalBarScore.classList.toggle('is-top', !placeAtBottom);
+}
+
+/**
+ * Handles incoming companion board state, renders the reconstructed board, and executes Stockfish analysis.
+ *
+ * @param {object} snapshot - Synced board position snapshot.
+ * @returns {Promise<void>}
+ */
+async function handleCompanionSnapshot(snapshot) {
+  if (!snapshot || !snapshot.fen) {
+    return;
+  }
+
+  const lang = getLanguage();
+  const shouldAnalyze = shouldTriggerAnalysis(state.companionSnapshot?.fen, snapshot.fen);
+  state.companionSnapshot = snapshot;
+
+  // Sync board orientation with the snapshot perspective
+  const targetOrientation = resolveCompanionBoardOrientation(snapshot.orientation);
+  state.isFlipped = targetOrientation === 'black';
+
+  // Render reconstructed board
+  try {
+    const boardGrid = parseFenBoard(snapshot.fen);
+    renderCompanionBoard(boardGrid, snapshot.lastMove);
+  } catch (err) {
+    console.error('Failed to parse FEN in companion mode:', err);
+  }
+
+  // Update status card
+  const status = formatCompanionStatus(snapshot, lang);
+  if (elements.companionStatusDot) {
+    elements.companionStatusDot.classList.toggle('is-synced', status.isSynced);
+  }
+  if (elements.companionStatusText) {
+    elements.companionStatusText.textContent = status.statusText;
+  }
+
+  // Set top and bottom player card names to reflect companion mode
+  if (elements.topName) {
+    elements.topName.textContent = state.isFlipped ? 'Chess.com (Trắng)' : 'Chess.com (Đen)';
+  }
+  if (elements.bottomName) {
+    elements.bottomName.textContent = state.isFlipped ? 'Chess.com (Đen)' : 'Chess.com (Trắng)';
+  }
+  elements.topClock.hidden = true;
+  elements.bottomClock.hidden = true;
+
+  if (!shouldAnalyze) {
+    return;
+  }
+
+  // Cancel any running analysis for previous plies
+  state.companionAnalysisAbortController?.abort();
+  state.companionAnalysisAbortController = new AbortController();
+  const { signal } = state.companionAnalysisAbortController;
+
+  try {
+    if (!state.analyzer && state.analysisScriptUrl) {
+      state.analyzer = createStockfishAnalyzer({
+        scriptUrl: state.analysisScriptUrl,
+        depth: 12,
+      });
+    }
+
+    if (elements.companionBestmoveBox) {
+      elements.companionBestmoveBox.hidden = false;
+    }
+    if (elements.companionBestmoveLabel) {
+      elements.companionBestmoveLabel.textContent =
+        lang === 'en' ? 'Stockfish calculating...' : 'Stockfish đang tính toán...';
+    }
+
+    if (state.analyzer) {
+      const result = await state.analyzer.analyzePosition(snapshot.fen, {
+        depth: 12,
+        signal,
+      });
+
+      if (signal.aborted) {
+        return;
+      }
+
+      const scoreText = formatEvalScore(result.eval, snapshot.turn);
+      const hintText = formatBestMoveHint(result.bestMoveUci, scoreText, lang);
+
+      if (elements.companionBestmoveLabel) {
+        elements.companionBestmoveLabel.textContent = hintText;
+      }
+      if (elements.companionEvalText) {
+        elements.companionEvalText.textContent = `${lang === 'en' ? 'Depth' : 'Độ sâu'}: ${result.depth}`;
+      }
+
+      renderCompanionEval(result.eval, snapshot.turn);
+      renderCompanionBestMoveArrow(result.bestMoveUci);
+    }
+  } catch (err) {
+    if (err?.name !== 'AbortError') {
+      console.error('Companion Stockfish analysis failed:', err);
+    }
+  }
+}
+
+/**
+ * Copies the standalone relay script to the clipboard.
+ *
+ * @returns {void}
+ */
+async function copyCompanionRelayScript() {
+  const code = generateRelayScript(window.location.origin);
+  try {
+    await navigator.clipboard.writeText(code);
+    if (elements.companionCopyScriptBtn) {
+      const origText = elements.companionCopyScriptBtn.textContent;
+      elements.companionCopyScriptBtn.textContent =
+        getLanguage() === 'en' ? 'Copied!' : 'Đã sao chép!';
+      setTimeout(() => {
+        if (elements.companionCopyScriptBtn) {
+          elements.companionCopyScriptBtn.textContent = origText;
+        }
+      }, 2000);
+    }
+  } catch (err) {
+    console.error('Failed to copy relay script:', err);
+  }
 }
 
 /**
@@ -3465,6 +3777,9 @@ elements.boardFullscreenBtn?.addEventListener('click', toggleFullscreenMode);
 elements.fullscreenExitBtn?.addEventListener('click', toggleFullscreenMode);
 elements.tabPlayBtn.addEventListener('click', () => setActiveTab('play'));
 elements.tabSetupBtn.addEventListener('click', () => setActiveTab('setup'));
+elements.tabCompanionBtn?.addEventListener('click', () => setActiveTab('companion'));
+elements.navCompanionBtn?.addEventListener('click', () => setActiveTab('companion'));
+elements.companionCopyScriptBtn?.addEventListener('click', copyCompanionRelayScript);
 elements.subtabMovesBtn.addEventListener('click', () => setPlaySubtab('moves'));
 elements.subtabChatBtn.addEventListener('click', () => setPlaySubtab('chat'));
 elements.chatForm.addEventListener('submit', (event) => {

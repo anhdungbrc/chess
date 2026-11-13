@@ -12,7 +12,9 @@ import {
   InvalidMoveError,
   UnauthorizedActionError,
 } from '../service/gameService.js';
+import { createCompanionService } from '../service/companionService.js';
 import {
+  validateCompanionSyncInput,
   validateCreateGameInput,
   validateDrawActionInput,
   validateJoinGameInput,
@@ -24,6 +26,11 @@ import {
 
 const MAX_BODY_BYTES = 16 * 1024;
 const SSE_HEARTBEAT_MS = 25 * 1000;
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -35,18 +42,20 @@ const MIME_TYPES = {
 };
 
 /**
- * Sends a JSON response with explicit status code and UTF-8 content header.
+ * Sends a JSON response with explicit status code, UTF-8 content header, and optional extra headers.
  *
  * @param {http.ServerResponse} res - HTTP response stream.
  * @param {number} statusCode - HTTP status code.
  * @param {unknown} payload - Serializable JSON body.
+ * @param {Record<string, string>} [extraHeaders] - Optional additional HTTP headers (e.g. CORS).
  * @returns {void}
  */
-function sendJson(res, statusCode, payload) {
+function sendJson(res, statusCode, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
+    ...extraHeaders,
   });
   res.end(body);
 }
@@ -102,27 +111,28 @@ function extractPlayerToken(req) {
  *
  * @param {http.ServerResponse} res - HTTP response stream.
  * @param {unknown} err - Caught error instance.
+ * @param {Record<string, string>} [extraHeaders] - Optional headers such as CORS headers.
  * @returns {void}
  */
-function handleErrorResponse(res, err) {
+function handleErrorResponse(res, err, extraHeaders = {}) {
   if (err instanceof ValidationError || err instanceof InvalidMoveError || err instanceof URIError) {
-    sendJson(res, 400, { error: err.message });
+    sendJson(res, 400, { error: err.message }, extraHeaders);
     return;
   }
   if (err instanceof UnauthorizedActionError) {
-    sendJson(res, 403, { error: err.message });
+    sendJson(res, 403, { error: err.message }, extraHeaders);
     return;
   }
   if (err instanceof GameNotFoundError) {
-    sendJson(res, 404, { error: err.message });
+    sendJson(res, 404, { error: err.message }, extraHeaders);
     return;
   }
   if (err instanceof GameOverError || err instanceof InvalidGameStateError) {
-    sendJson(res, 409, { error: err.message });
+    sendJson(res, 409, { error: err.message }, extraHeaders);
     return;
   }
 
-  sendJson(res, 500, { error: 'Internal server error' });
+  sendJson(res, 500, { error: 'Internal server error' }, extraHeaders);
 }
 
 /**
@@ -222,6 +232,66 @@ function openSseStream(req, res, gameService, gameId, activeCleanups) {
 }
 
 /**
+ * Opens a Server-Sent Events stream for real-time companion board updates.
+ *
+ * @param {http.IncomingMessage} req - Incoming HTTP request stream.
+ * @param {http.ServerResponse} res - Outgoing HTTP response stream.
+ * @param {object} companionService - Service managing live companion snapshots.
+ * @param {Set<() => void>} activeCleanups - Registry of active SSE connection cleanups.
+ * @returns {void}
+ */
+function openCompanionSseStream(req, res, companionService, activeCleanups) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.flushHeaders?.();
+
+  const writeSnapshot = (snapshot, eventName = 'companion:update') => {
+    if (!res.writableEnded && snapshot) {
+      res.write(`event: ${eventName}\ndata: ${JSON.stringify(snapshot)}\n\n`);
+    }
+  };
+
+  // If a position has already been synced, immediately deliver it upon connection
+  const initial = companionService.getLatestSnapshot();
+  if (initial) {
+    writeSnapshot(initial, 'companion:snapshot');
+  }
+
+  const unsubscribe = companionService.subscribe((snapshot) => {
+    writeSnapshot(snapshot, 'companion:update');
+  });
+
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded) {
+      res.write(': ping\n\n');
+    }
+  }, SSE_HEARTBEAT_MS);
+  heartbeat.unref?.();
+
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) {
+      return;
+    }
+    cleaned = true;
+    clearInterval(heartbeat);
+    unsubscribe();
+    activeCleanups.delete(cleanup);
+    if (!res.writableEnded) {
+      res.end();
+    }
+  };
+
+  activeCleanups.add(cleanup);
+  req.on('close', cleanup);
+  res.on('close', cleanup);
+}
+
+/**
  * Locates the single-threaded lite Stockfish Web Worker script inside the vendor directory.
  *
  * @param {string | undefined} stockfishDir - Directory containing Stockfish JS/WASM assets.
@@ -241,19 +311,50 @@ function resolveStockfishScriptFile(stockfishDir) {
 }
 
 /**
- * Creates the Node.js HTTP server handling chess REST endpoints and static assets.
+ * Creates the Node.js HTTP server handling chess REST endpoints, companion sync, and static assets.
  *
- * @param {{ gameService: object, publicDir: string, stockfishDir?: string }} deps - Server dependencies.
+ * @param {{ gameService: object, companionService?: object, publicDir: string, stockfishDir?: string }} deps - Server dependencies.
  * @returns {http.Server} Configured Node.js HTTP server instance.
  */
-export function createHttpServer({ gameService, publicDir, stockfishDir }) {
+export function createHttpServer({
+  gameService,
+  companionService = createCompanionService(),
+  publicDir,
+  stockfishDir,
+}) {
   const activeSseCleanups = new Set();
   const stockfishScriptFile = resolveStockfishScriptFile(stockfishDir);
 
   const server = http.createServer(async (req, res) => {
+    let pathname = '/';
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
-      const pathname = decodeURIComponent(url.pathname);
+      pathname = decodeURIComponent(url.pathname);
+
+      if (pathname === '/api/companion/sync') {
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204, CORS_HEADERS);
+          res.end();
+          return;
+        }
+        if (req.method === 'POST') {
+          const body = await readJsonBody(req);
+          const input = validateCompanionSyncInput(body);
+          const saved = companionService.updateSnapshot(input);
+          sendJson(res, 200, { ok: true, timestamp: saved.timestamp }, CORS_HEADERS);
+          return;
+        }
+      }
+
+      if (req.method === 'GET' && pathname === '/api/companion/latest') {
+        sendJson(res, 200, { snapshot: companionService.getLatestSnapshot() }, CORS_HEADERS);
+        return;
+      }
+
+      if (req.method === 'GET' && pathname === '/api/companion/events') {
+        openCompanionSseStream(req, res, companionService, activeSseCleanups);
+        return;
+      }
 
       if (req.method === 'GET' && pathname === '/api/meta') {
         sendJson(res, 200, {
@@ -376,7 +477,8 @@ export function createHttpServer({ gameService, publicDir, stockfishDir }) {
 
       sendJson(res, 405, { error: 'Method not allowed' });
     } catch (err) {
-      handleErrorResponse(res, err);
+      const extraHeaders = pathname.startsWith('/api/companion/') ? CORS_HEADERS : {};
+      handleErrorResponse(res, err, extraHeaders);
     }
   });
 
