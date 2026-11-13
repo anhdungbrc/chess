@@ -7,6 +7,7 @@ import {
   isSamePosition,
   generateRelayScript,
   generateBookmarklet,
+  inferTurnFromLastMove,
 } from '../public/companionHelper.js';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -128,4 +129,54 @@ test('generateRelayScript and generateBookmarklet produce configured script stri
   const bookmarklet = generateBookmarklet('http://localhost:3000');
   assert.ok(bookmarklet.startsWith('javascript:'));
   assert.ok(decodeURIComponent(bookmarklet).includes('http://localhost:3000/api/companion/sync'));
+});
+
+/**
+ * Builds an 8x8 grid (row 0 = rank 8) from a FEN piece-placement field for turn inference tests.
+ *
+ * @param {string} placement - FEN piece placement field.
+ * @returns {Array<Array<string | null>>} Grid of FEN piece characters.
+ */
+function gridFromPlacement(placement) {
+  return placement.split('/').map((rank) => {
+    const row = [];
+    for (const char of rank) {
+      if (/[1-8]/.test(char)) {
+        row.push(...Array(Number(char)).fill(null));
+      } else {
+        row.push(char);
+      }
+    }
+    return row;
+  });
+}
+
+/**
+ * Validates that after White's 1.e4 (white pawn on highlighted e4) it is Black's turn,
+ * regardless of the order in which the two highlighted squares are listed.
+ */
+test('inferTurnFromLastMove returns black after a White move', () => {
+  const grid = gridFromPlacement('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR');
+  assert.equal(inferTurnFromLastMove(grid, ['e2', 'e4']), 'b');
+  assert.equal(inferTurnFromLastMove(grid, ['e4', 'e2']), 'b');
+});
+
+/**
+ * Validates that after Black's 1...e5 (black pawn on highlighted e5) it is White's turn,
+ * and that a board with no highlighted squares (game start) defaults to White.
+ */
+test('inferTurnFromLastMove returns white after a Black move or with no highlights', () => {
+  const grid = gridFromPlacement('rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR');
+  assert.equal(inferTurnFromLastMove(grid, ['e7', 'e5']), 'w');
+  assert.equal(inferTurnFromLastMove(grid, []), 'w');
+});
+
+/**
+ * Validates that the relay script derives the side to move instead of hardcoding White,
+ * which previously made best-move hints always target White.
+ */
+test('generateRelayScript does not hardcode White to move', () => {
+  const script = generateRelayScript('http://localhost:3000');
+  assert.ok(!script.includes("' w - - 0 1'"));
+  assert.ok(script.includes('inferTurnFromLastMove'));
 });

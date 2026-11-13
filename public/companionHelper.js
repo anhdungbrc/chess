@@ -167,6 +167,29 @@ export function isSamePosition(fenA, fenB) {
 }
 
 /**
+ * Infers the side to move from the highlighted squares of the last move.
+ * The mover is the colour of the piece standing on a highlighted square (the destination is
+ * occupied, the origin is empty), so the side to move is the opposite colour.
+ * Must stay self-contained (no outer references): it is embedded into the relay script via toString().
+ *
+ * @param {Array<Array<string | null>>} grid - 8x8 FEN piece characters, row 0 = rank 8.
+ * @param {string[]} highlightedSquares - Algebraic squares highlighted as the last move (e.g. ['e2', 'e4']).
+ * @returns {'w' | 'b'} Side to move; 'w' when no highlighted square holds a piece (game start).
+ */
+export function inferTurnFromLastMove(grid, highlightedSquares) {
+  for (const square of highlightedSquares) {
+    const fileIdx = square.charCodeAt(0) - 97; // 'a' -> 0
+    const rowIdx = 8 - Number(square[1]); // rank 8 -> row 0
+    const fenChar = grid[rowIdx] && grid[rowIdx][fileIdx];
+    if (fenChar) {
+      // Uppercase FEN char = White piece just moved, so Black is to move
+      return fenChar === fenChar.toUpperCase() ? 'b' : 'w';
+    }
+  }
+  return 'w';
+}
+
+/**
  * Generates an optimized, standalone JavaScript relay snippet for Chess.com live boards.
  *
  * @param {string} [serverUrl='http://localhost:3000'] - Companion server base URL.
@@ -180,6 +203,8 @@ export function generateRelayScript(serverUrl = 'http://localhost:3000') {
   const FILES = ['a','b','c','d','e','f','g','h'];
   let lastSentFen = null;
   let syncTimer = null;
+
+  ${inferTurnFromLastMove.toString()}
 
   function extractBoardFen() {
     const board = document.querySelector('wc-chess-board, chess-board');
@@ -220,9 +245,9 @@ export function generateRelayScript(serverUrl = 'http://localhost:3000') {
 
     // Highlighted squares indicating last move
     const highlights = board.querySelectorAll('.highlight');
+    const squares = [];
     let lastMove = null;
     if (highlights.length >= 2) {
-      const squares = [];
       highlights.forEach(h => {
         const sm = h.className.match(/\\bsquare-([1-8])([1-8])\\b/);
         if (sm) squares.push(FILES[Number(sm[1])-1] + sm[2]);
@@ -232,8 +257,11 @@ export function generateRelayScript(serverUrl = 'http://localhost:3000') {
       }
     }
 
+    // Turn is derived from who just moved; a fixed 'w' made hints always target White
+    const turn = inferTurnFromLastMove(grid, squares);
+
     return {
-      fen: rows.join('/') + ' w - - 0 1',
+      fen: rows.join('/') + ' ' + turn + ' - - 0 1',
       orientation,
       lastMove,
       timestamp: Date.now()
