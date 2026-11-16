@@ -159,6 +159,7 @@ const CLASSIFICATION_BADGES = {
   inaccuracy: { symbol: '?!', label: 'Inaccuracy', color: '#f7c631' },
   mistake: { symbol: '?', label: 'Mistake', color: '#e6912c' },
   blunder: { symbol: '??', label: 'Blunder', color: '#ca3431' },
+  risky_trap: { symbol: '🏹', label: 'Risky Trap', color: '#ef4444' },
 };
 
 /**

@@ -645,11 +645,61 @@
                 <span id="companion-status-dot" class="status-dot"></span>
                 <span id="companion-status-text" data-i18n="companion.statusWaiting">Đang đợi thế cờ từ Chess.com...</span>
               </div>
+              <div class="companion-controls-row">
+                <button
+                  id="companion-trap-toggle-btn"
+                  type="button"
+                  class="btn btn-trap-toggle"
+                  aria-pressed="false"
+                  data-i18n="companion.trapModeOff"
+                >
+                  🪤 Ưu tiên đòn bẫy: TẮT
+                </button>
+                <button
+                  id="companion-attack-toggle-btn"
+                  type="button"
+                  class="btn btn-attack-toggle"
+                  aria-pressed="false"
+                  data-i18n="companion.attackModeOff"
+                >
+                  🔥 Tấn công thí quân: TẮT
+                </button>
+                <button
+                  id="companion-anti-streak-toggle-btn"
+                  type="button"
+                  class="btn btn-anti-streak-toggle"
+                  aria-pressed="true"
+                  title="Chống các nước đi tốt nhất liên tục"
+                >
+                  🛡️ Chống chuỗi: BẬT (0/5)
+                </button>
+              </div>
               <div id="companion-bestmove-box" class="companion-bestmove-box" hidden>
                 <div id="companion-bestmove-label" class="companion-bestmove-label"></div>
                 <div id="companion-eval-text" class="companion-eval-text"></div>
                 <div id="companion-move-note" class="companion-move-note" hidden></div>
                 <div id="companion-accuracy-text" class="companion-eval-text" hidden></div>
+              </div>
+              <div id="companion-trap-box" class="companion-trap-box" hidden>
+                <div class="companion-trap-header">
+                  <span id="companion-trap-badge" class="companion-trap-badge"></span>
+                  <span id="companion-trap-title" class="companion-trap-title"></span>
+                </div>
+                <div id="companion-trap-move" class="companion-trap-move"></div>
+                <div id="companion-trap-avoid" class="companion-trap-avoid" hidden></div>
+                <div id="companion-trap-desc" class="companion-trap-desc"></div>
+                <div id="companion-trap-roadmap-wrap" class="companion-trap-roadmap-wrap" hidden>
+                  <div class="companion-trap-roadmap-title" data-i18n="companion.trapRoadmapTitle">Lộ trình đòn bẫy liên hoàn:</div>
+                  <div id="companion-trap-roadmap" class="companion-trap-roadmap"></div>
+                </div>
+                <div id="companion-trap-sequence-wrap" class="companion-trap-sequence-wrap" hidden>
+                  <div class="companion-trap-sequence-title" data-i18n="companion.trapSequenceTitle">Chuỗi kịch bản đòn bẫy:</div>
+                  <div id="companion-trap-sequence" class="companion-trap-sequence"></div>
+                </div>
+              </div>
+              <div id="companion-proactive-box" class="companion-proactive-box" hidden>
+                <div class="companion-proactive-title" data-i18n="companion.proactive.title">Đòn bẫy có thể chủ động giăng:</div>
+                <div id="companion-proactive-list" class="companion-proactive-list"></div>
               </div>
             </div>
           </div>

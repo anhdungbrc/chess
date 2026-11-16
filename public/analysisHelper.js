@@ -271,3 +271,92 @@ export function parseMultiPvIndex(line) {
   const match = typeof line === 'string' ? line.match(/\bmultipv\s+(\d+)\b/) : null;
   return match ? Number(match[1]) : 1;
 }
+
+export const DEFAULT_CONSECUTIVE_BEST_MOVES_THRESHOLD = 5;
+export const MAX_SAFE_RUNNER_UP_CP_LOSS = 150;
+export const MAX_SAFE_RUNNER_UP_WIN_LOSS = 10;
+
+/**
+ * Computes the number of consecutive top engine moves ('best', 'great', 'brilliant') made by a player from the latest moves.
+ *
+ * @param {Array<{ color: 'w' | 'b', classification?: string }> | null | undefined} gradedMoves - List of graded moves in chronological order.
+ * @param {'w' | 'b'} playerColor - Side of the player to track ('w' or 'b').
+ * @returns {number} Consecutive top moves count (streak).
+ */
+export function computeConsecutiveBestMovesStreak(gradedMoves, playerColor) {
+  if (!Array.isArray(gradedMoves) || gradedMoves.length === 0) {
+    return 0;
+  }
+  let streak = 0;
+  // Iterate backwards from the latest move to count the streak for playerColor
+  for (let i = gradedMoves.length - 1; i >= 0; i -= 1) {
+    const item = gradedMoves[i];
+    if (!item || item.color !== playerColor) {
+      continue; // Skip opponent moves to track player's sequence
+    }
+    const c = item.classification;
+    if (c === 'best' || c === 'great' || c === 'brilliant') {
+      streak += 1;
+    } else {
+      break; // Any non-top move breaks the consecutive streak
+    }
+  }
+  return streak;
+}
+
+/**
+ * Assesses whether a runner-up engine move is tactically safe to recommend as an anti-detection alternative.
+ *
+ * @param {{
+ *   bestEval: { cp?: number | null, mate?: number | null } | null | undefined,
+ *   secondBestEval: { cp?: number | null, mate?: number | null } | null | undefined,
+ *   moverColor: 'w' | 'b',
+ *   maxWinLoss?: number,
+ *   maxCpLoss?: number,
+ * }} params - Position evaluation of best move, second best move, mover color, and tolerance thresholds.
+ * @returns {boolean} True if second-best move does not blunder the game or allow forced mate.
+ */
+export function isSafeRunnerUpMove({
+  bestEval,
+  secondBestEval,
+  moverColor,
+  maxWinLoss = MAX_SAFE_RUNNER_UP_WIN_LOSS,
+  maxCpLoss = MAX_SAFE_RUNNER_UP_CP_LOSS,
+}) {
+  if (!bestEval || !secondBestEval) {
+    return false;
+  }
+
+  // Reject runner-up moves that allow opponent to deliver forced checkmate
+  if (typeof secondBestEval.mate === 'number') {
+    const isMated = moverColor === 'w' ? secondBestEval.mate < 0 : secondBestEval.mate > 0;
+    if (isMated) {
+      return false; // Do not blunder into checkmate
+    }
+  }
+
+  // Calculate win probability loss from mover's perspective
+  const toMoverWin = (evalScore) => {
+    const whiteWin = evalToWinPercent(evalScore);
+    return moverColor === 'w' ? whiteWin : 100 - whiteWin;
+  };
+  const bestWin = toMoverWin(bestEval);
+  const secondWin = toMoverWin(secondBestEval);
+  const winLoss = Math.max(0, bestWin - secondWin);
+
+  if (winLoss > maxWinLoss) {
+    return false;
+  }
+
+  // Check centipawn gap when both are cp evaluations
+  if (typeof bestEval.cp === 'number' && typeof secondBestEval.cp === 'number') {
+    const moverBestCp = moverColor === 'w' ? bestEval.cp : -bestEval.cp;
+    const moverSecondCp = moverColor === 'w' ? secondBestEval.cp : -secondBestEval.cp;
+    const cpLoss = Math.max(0, moverBestCp - moverSecondCp);
+    if (cpLoss > maxCpLoss) {
+      return false;
+    }
+  }
+
+  return true;
+}

@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classifyMove,
+  computeConsecutiveBestMovesStreak,
+  isSafeRunnerUpMove,
   detectBrilliantMove,
   detectGreatMove,
   isPieceSacrifice,
@@ -236,3 +238,89 @@ function testBrilliantGreatBadges() {
 }
 
 test('getClassificationBadgeInfo defines brilliant and great badges', testBrilliantGreatBadges);
+
+/**
+ * Verifies computeConsecutiveBestMovesStreak counts only consecutive top moves of the active player.
+ * Expected: 10 consecutive best/great/brilliant moves return 10; non-best move breaks streak; ignores opponent moves.
+ */
+function testComputeConsecutiveBestMovesStreak() {
+  const tenMoves = [];
+  for (let i = 0; i < 10; i += 1) {
+    tenMoves.push({ color: 'w', classification: i % 2 === 0 ? 'best' : 'great' });
+    tenMoves.push({ color: 'b', classification: 'mistake' });
+  }
+  assert.equal(computeConsecutiveBestMovesStreak(tenMoves, 'w'), 10);
+  assert.equal(computeConsecutiveBestMovesStreak(tenMoves, 'b'), 0);
+
+  // When player plays an excellent/good move, streak is broken
+  const brokenStreak = [
+    ...tenMoves,
+    { color: 'w', classification: 'good' },
+    { color: 'b', classification: 'best' },
+  ];
+  assert.equal(computeConsecutiveBestMovesStreak(brokenStreak, 'w'), 0);
+  assert.equal(computeConsecutiveBestMovesStreak(brokenStreak, 'b'), 1);
+
+  // Empty or invalid input
+  assert.equal(computeConsecutiveBestMovesStreak([], 'w'), 0);
+  assert.equal(computeConsecutiveBestMovesStreak(null, 'w'), 0);
+}
+
+/**
+ * Verifies isSafeRunnerUpMove evaluates centipawn loss, win% loss, and mate threats for runner-up moves.
+ * Expected: returns true when loss is within thresholds; false on large loss or when runner-up gets mated.
+ */
+function testIsSafeRunnerUpMove() {
+  // Safe runner-up: small 30 cp gap for White
+  assert.equal(
+    isSafeRunnerUpMove({
+      bestEval: { cp: 100, mate: null },
+      secondBestEval: { cp: 70, mate: null },
+      moverColor: 'w',
+    }),
+    true
+  );
+
+  // Unsafe runner-up: huge 300 cp gap for White
+  assert.equal(
+    isSafeRunnerUpMove({
+      bestEval: { cp: 100, mate: null },
+      secondBestEval: { cp: -200, mate: null },
+      moverColor: 'w',
+    }),
+    false
+  );
+
+  // Unsafe runner-up: runner-up walks into checkmate for White
+  assert.equal(
+    isSafeRunnerUpMove({
+      bestEval: { cp: 50, mate: null },
+      secondBestEval: { cp: null, mate: -2 },
+      moverColor: 'w',
+    }),
+    false
+  );
+
+  // Safe runner-up for Black: small gap (-100 cp vs -70 cp)
+  assert.equal(
+    isSafeRunnerUpMove({
+      bestEval: { cp: -100, mate: null },
+      secondBestEval: { cp: -70, mate: null },
+      moverColor: 'b',
+    }),
+    true
+  );
+
+  // Missing runner-up eval
+  assert.equal(
+    isSafeRunnerUpMove({
+      bestEval: { cp: 100, mate: null },
+      secondBestEval: null,
+      moverColor: 'w',
+    }),
+    false
+  );
+}
+
+test('computeConsecutiveBestMovesStreak tracks consecutive top engine moves per color', testComputeConsecutiveBestMovesStreak);
+test('isSafeRunnerUpMove validates acceptable cp loss and rejects mate threats', testIsSafeRunnerUpMove);

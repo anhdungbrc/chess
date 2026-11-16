@@ -1,4 +1,11 @@
-import { evalToWinPercent, formatEvalScore, summarizeGameAnalysis, uciToMoveSquares } from './analysisHelper.js';
+import {
+  computeConsecutiveBestMovesStreak,
+  DEFAULT_CONSECUTIVE_BEST_MOVES_THRESHOLD,
+  evalToWinPercent,
+  formatEvalScore,
+  summarizeGameAnalysis,
+  uciToMoveSquares,
+} from './analysisHelper.js';
 import { createStockfishAnalyzer } from './stockfishClient.js';
 import { formatReviewMoveLabel, parseFenBoard, resolveReviewViewState } from './reviewHelper.js';
 import {
@@ -12,14 +19,25 @@ import {
   generateRelayScript,
 } from './companionHelper.js';
 import {
+  formatAntiStreakButtonText,
   formatBestMoveHint,
   formatCompanionStatus,
+  formatContinuousAttackButtonText,
+  formatProactiveTrapList,
+  formatTrapCard,
   gradeCompanionMove,
   hasSamePlacement,
   inferMoveFromBoards,
   resolveCompanionBoardOrientation,
+  resolveCompanionPrimaryHint,
   setFenTurn,
 } from './companionUiHelper.js';
+import {
+  detectKingSacrificeAttack,
+  findProactiveTraps,
+  resolveContinuousTrapChain,
+  resolveTrapSuggestion,
+} from './trapHelper.js';
 import {
   applyOptimisticMove,
   canInteractWithBoard,
@@ -153,6 +171,15 @@ const state = {
   // Graded moves of the current synced game, used for per-side accuracy.
   companionGradedMoves: [],
   companionLastGrade: null,
+  companionTrapSuggestion: null,
+  companionTrapModeActive: false,
+  companionContinuousAttackActive: false,
+  companionKingSacrificeAttack: null,
+  companionAntiStreakActive: true,
+  companionAntiStreakThreshold: DEFAULT_CONSECUTIVE_BEST_MOVES_THRESHOLD,
+  companionBestMoveStreak: 0,
+  companionActiveComboChain: null,
+  companionComboStep: 1,
 };
 
 const elements = {
@@ -214,6 +241,21 @@ const elements = {
   companionEvalText: document.getElementById('companion-eval-text'),
   companionMoveNote: document.getElementById('companion-move-note'),
   companionAccuracyText: document.getElementById('companion-accuracy-text'),
+  companionTrapBox: document.getElementById('companion-trap-box'),
+  companionTrapToggleBtn: document.getElementById('companion-trap-toggle-btn'),
+  companionAttackToggleBtn: document.getElementById('companion-attack-toggle-btn'),
+  companionAntiStreakToggleBtn: document.getElementById('companion-anti-streak-toggle-btn'),
+  companionTrapBadge: document.getElementById('companion-trap-badge'),
+  companionTrapTitle: document.getElementById('companion-trap-title'),
+  companionTrapMove: document.getElementById('companion-trap-move'),
+  companionTrapAvoid: document.getElementById('companion-trap-avoid'),
+  companionTrapDesc: document.getElementById('companion-trap-desc'),
+  companionTrapRoadmapWrap: document.getElementById('companion-trap-roadmap-wrap'),
+  companionTrapRoadmap: document.getElementById('companion-trap-roadmap'),
+  companionTrapSequenceWrap: document.getElementById('companion-trap-sequence-wrap'),
+  companionTrapSequence: document.getElementById('companion-trap-sequence'),
+  companionProactiveBox: document.getElementById('companion-proactive-box'),
+  companionProactiveList: document.getElementById('companion-proactive-list'),
   companionBookmarkletLink: document.getElementById('companion-bookmarklet-link'),
   companionCopyScriptBtn: document.getElementById('companion-copy-script-btn'),
   modeBotBtn: document.getElementById('mode-bot-btn'),
@@ -522,18 +564,16 @@ function renderCompanionBoard(boardGrid, lastMove, grade = null) {
 }
 
 /**
- * Draws the best move recommendation arrow onto the board overlay.
+ * Draws the best move recommendation arrow and optional trap suggestion arrow onto the board overlay.
  *
- * @param {string | null} bestMoveUci - UCI string like 'e7e5' or null.
+ * @param {string | null} bestMoveUci - UCI coordinate move string (e.g. 'e7e5') or null.
+ * @param {string | null} [trapMoveUci=null] - Optional trap coordinate move string (e.g. 'f3e5').
+ * @param {string | null} [trapArrowColor=null] - Optional custom CSS color for the trap arrow.
  * @returns {void}
  */
-function renderCompanionBestMoveArrow(bestMoveUci) {
+function renderCompanionBestMoveArrow(bestMoveUci, trapMoveUci = null, trapArrowColor = null) {
   elements.boardArrows.innerHTML = '';
-  if (!bestMoveUci) {
-    return;
-  }
-  const squares = uciToMoveSquares(bestMoveUci);
-  if (!squares?.from || !squares?.to) {
+  if (!bestMoveUci && !trapMoveUci) {
     return;
   }
 
@@ -549,12 +589,495 @@ function renderCompanionBestMoveArrow(bestMoveUci) {
     };
   };
 
-  appendBoardArrow(
-    'chess-best-arrow-head',
-    'rgba(129, 182, 76, 0.9)',
-    squareCenter(squares.from),
-    squareCenter(squares.to)
+  const isTrapOnly = Boolean(trapMoveUci && (!bestMoveUci || bestMoveUci === trapMoveUci));
+  const effectiveTrapColor = trapArrowColor || 'rgba(239, 68, 68, 0.95)';
+
+  if (bestMoveUci) {
+    const squares = uciToMoveSquares(bestMoveUci);
+    if (squares?.from && squares?.to) {
+      const isTrapPrimary = isTrapOnly || state.companionTrapModeActive;
+      const arrowId = isTrapPrimary ? 'chess-trap-arrow-head' : 'chess-best-arrow-head';
+      const arrowColor = isTrapPrimary ? effectiveTrapColor : 'rgba(129, 182, 76, 0.9)';
+      appendBoardArrow(
+        arrowId,
+        arrowColor,
+        squareCenter(squares.from),
+        squareCenter(squares.to)
+      );
+    }
+  }
+
+  // Draw distinct trap arrow if a trap move exists and does not duplicate the best move arrow
+  if (trapMoveUci && trapMoveUci !== bestMoveUci) {
+    const trapSquares = uciToMoveSquares(trapMoveUci);
+    if (trapSquares?.from && trapSquares?.to) {
+      appendBoardArrow(
+        'chess-trap-arrow-head',
+        effectiveTrapColor,
+        squareCenter(trapSquares.from),
+        squareCenter(trapSquares.to)
+      );
+    }
+  }
+}
+
+/**
+ * Renders the companion trap suggestion card and details in the side panel.
+ *
+ * @param {object | null} trap - Resolved trap recommendation object.
+ * @returns {void}
+ */
+function renderCompanionTrapSuggestion(trap) {
+  if (!elements.companionTrapBox) {
+    return;
+  }
+  const lang = getLanguage();
+  const card = formatTrapCard(trap, lang);
+
+  if (!card) {
+    // If Trap Mode is active, keep the box visible to inform user no trap exists at current position
+    if (state.companionTrapModeActive) {
+      elements.companionTrapBox.hidden = false;
+      elements.companionTrapBox.classList.remove('is-defensive', 'is-tactical');
+      if (elements.companionTrapBadge) {
+        elements.companionTrapBadge.className = 'companion-trap-badge';
+        elements.companionTrapBadge.textContent =
+          lang === 'en' ? 'Scanning Traps...' : 'Đang quét đòn bẫy...';
+        elements.companionTrapBadge.style.background = '#4b5563';
+        elements.companionTrapBadge.style.color = '#e5e7eb';
+      }
+      if (elements.companionTrapTitle) {
+        elements.companionTrapTitle.textContent =
+          lang === 'en' ? 'No trap in this position' : 'Chưa có đòn bẫy ở thế cờ này';
+      }
+      if (elements.companionTrapMove) {
+        elements.companionTrapMove.hidden = true;
+      }
+      if (elements.companionTrapAvoid) {
+        elements.companionTrapAvoid.hidden = true;
+      }
+      if (elements.companionTrapDesc) {
+        elements.companionTrapDesc.textContent =
+          lang === 'en'
+            ? 'Stockfish continues calculating best tactical replies.'
+            : 'Hệ thống đang liên tục quét các cơ hội giăng bẫy qua từng nước đi.';
+      }
+      if (elements.companionTrapSequenceWrap) {
+        elements.companionTrapSequenceWrap.hidden = true;
+      }
+      if (elements.companionTrapRoadmapWrap) {
+        elements.companionTrapRoadmapWrap.hidden = true;
+      }
+    } else {
+      elements.companionTrapBox.hidden = true;
+    }
+    return;
+  }
+
+  elements.companionTrapBox.hidden = false;
+  elements.companionTrapBox.classList.remove('is-defensive', 'is-tactical', 'is-extreme');
+  if (card.isExtremeSacrifice) {
+    elements.companionTrapBox.classList.add('is-extreme');
+  } else if (trap?.type === 'defensive') {
+    elements.companionTrapBox.classList.add('is-defensive');
+  } else if (trap?.type === 'tactical') {
+    elements.companionTrapBox.classList.add('is-tactical');
+  }
+
+  if (elements.companionTrapBadge) {
+    elements.companionTrapBadge.className = `companion-trap-badge ${card.badgeClass}`;
+    elements.companionTrapBadge.textContent = card.badgeText;
+    elements.companionTrapBadge.style.background = '';
+    elements.companionTrapBadge.style.color = '';
+  }
+
+  if (elements.companionTrapTitle) {
+    elements.companionTrapTitle.textContent = card.titleText;
+  }
+
+  if (elements.companionTrapMove) {
+    elements.companionTrapMove.innerHTML = '';
+    if (card.moveText) {
+      elements.companionTrapMove.hidden = false;
+      const moveBtn = document.createElement('button');
+      moveBtn.type = 'button';
+      moveBtn.className = 'btn-trap-move-arrow';
+      moveBtn.setAttribute(
+        'title',
+        lang === 'en'
+          ? 'Click to show red trap arrow on board'
+          : 'Bấm để hiển thị nút mũi tên đỏ giăng bẫy trên bàn cờ'
+      );
+      moveBtn.innerHTML = `<span class="trap-arrow-icon">➔</span> <span>${card.moveText}</span>`;
+      moveBtn.addEventListener('click', () => {
+        if (card.moveUci) {
+          renderCompanionBestMoveArrow(card.moveUci, card.moveUci, 'rgba(239, 68, 68, 0.95)');
+        }
+      });
+      elements.companionTrapMove.appendChild(moveBtn);
+    } else {
+      elements.companionTrapMove.hidden = true;
+    }
+  }
+
+  if (elements.companionTrapAvoid) {
+    elements.companionTrapAvoid.textContent = card.avoidText;
+    elements.companionTrapAvoid.hidden = !card.avoidText;
+  }
+
+  if (elements.companionTrapDesc) {
+    elements.companionTrapDesc.textContent = card.descText;
+  }
+
+  // Render combo roadmap pills
+  if (elements.companionTrapRoadmap && elements.companionTrapRoadmapWrap) {
+    elements.companionTrapRoadmap.innerHTML = '';
+    const roadmapSteps = Array.isArray(card.roadmapSteps) ? card.roadmapSteps : [];
+    if (roadmapSteps.length > 0) {
+      elements.companionTrapRoadmapWrap.hidden = false;
+      roadmapSteps.forEach((step, idx) => {
+        if (idx > 0) {
+          const arrow = document.createElement('span');
+          arrow.className = 'trap-roadmap-arrow';
+          arrow.textContent = '➔';
+          elements.companionTrapRoadmap.appendChild(arrow);
+        }
+        const pill = document.createElement('span');
+        pill.className = `trap-roadmap-pill${idx === 0 ? ' is-active' : ''}${step.isSacrifice ? ' is-sacrifice' : ''}`;
+        const flame = step.isSacrifice ? '🔥 ' : '';
+        pill.textContent = `${flame}${step.stepNumber}. ${step.san || step.move}`;
+        if (step.label) {
+          pill.setAttribute('title', step.label);
+        }
+        elements.companionTrapRoadmap.appendChild(pill);
+      });
+    } else {
+      elements.companionTrapRoadmapWrap.hidden = true;
+    }
+  }
+
+  // Render multi-move trap sequence timeline
+  if (elements.companionTrapSequence && elements.companionTrapSequenceWrap) {
+    elements.companionTrapSequence.innerHTML = '';
+    const seq = Array.isArray(card.sequence) ? card.sequence : [];
+    if (seq.length > 0) {
+      elements.companionTrapSequenceWrap.hidden = false;
+      for (const step of seq) {
+        const pill = document.createElement('div');
+        pill.className = 'trap-step-pill';
+
+        const moveSpan = document.createElement('span');
+        moveSpan.className = 'trap-step-pill-move';
+        moveSpan.textContent = step.san || step.move;
+
+        const labelSpan = document.createElement('span');
+        labelSpan.className = 'trap-step-pill-label';
+        labelSpan.textContent = step.label?.[lang] || step.label?.vi || '';
+
+        pill.appendChild(moveSpan);
+        pill.appendChild(labelSpan);
+        elements.companionTrapSequence.appendChild(pill);
+      }
+    } else {
+      elements.companionTrapSequenceWrap.hidden = true;
+    }
+  }
+}
+
+/**
+ * Renders proactive achievable trap suggestions in the companion panel.
+ *
+ * @param {Array<{ trap: object, nextSetupMove: string, remainingSteps: number }> | null | undefined} candidates - Achievable opening traps.
+ * @returns {void}
+ */
+function renderCompanionProactiveTraps(candidates) {
+  if (!elements.companionProactiveBox || !elements.companionProactiveList) {
+    return;
+  }
+  const lang = getLanguage();
+  const pills = formatProactiveTrapList(candidates, lang);
+
+  if (!pills || pills.length === 0) {
+    elements.companionProactiveBox.hidden = true;
+    elements.companionProactiveList.innerHTML = '';
+    return;
+  }
+
+  elements.companionProactiveBox.hidden = false;
+  elements.companionProactiveList.innerHTML = '';
+
+  for (const item of pills) {
+    const pill = document.createElement('div');
+    pill.className = 'proactive-trap-pill';
+    pill.setAttribute('role', 'button');
+    pill.setAttribute('tabindex', '0');
+    pill.title = item.trap?.description?.[lang] || item.trap?.description?.vi || '';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'proactive-trap-name';
+    nameSpan.textContent = item.name;
+
+    const moveSpan = document.createElement('span');
+    moveSpan.className = 'proactive-trap-move';
+    moveSpan.textContent = `${item.setupMoveUci} (${item.stepsText})`;
+
+    pill.appendChild(nameSpan);
+    pill.appendChild(moveSpan);
+
+    const selectProactiveTrap = () => {
+      const allPills = elements.companionProactiveList.querySelectorAll('.proactive-trap-pill');
+      allPills.forEach((p) => p.classList.remove('is-active'));
+      pill.classList.add('is-active');
+
+      renderCompanionTrapSuggestion(item.trap);
+      renderCompanionBestMoveArrow(item.setupMoveUci, item.setupMoveUci, 'rgba(239, 68, 68, 0.95)');
+    };
+
+    pill.addEventListener('click', selectProactiveTrap);
+    pill.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        selectProactiveTrap();
+      }
+    });
+
+    elements.companionProactiveList.appendChild(pill);
+  }
+}
+
+/**
+ * Synchronizes the Trap Mode toggle button appearance and ARIA state.
+ *
+ * @returns {void}
+ */
+function updateTrapModeToggleUI() {
+  if (!elements.companionTrapToggleBtn) {
+    return;
+  }
+  const isActive = Boolean(state.companionTrapModeActive);
+  elements.companionTrapToggleBtn.classList.toggle('is-active', isActive);
+  elements.companionTrapToggleBtn.setAttribute('aria-pressed', String(isActive));
+  elements.companionTrapToggleBtn.textContent = t(
+    isActive ? 'companion.trapModeOn' : 'companion.trapModeOff'
   );
+}
+
+/**
+ * Toggles the Trap Mode on or off and refreshes the live companion presentation.
+ *
+ * @returns {void}
+ */
+function toggleCompanionTrapMode() {
+  state.companionTrapModeActive = !state.companionTrapModeActive;
+  try {
+    localStorage.setItem('chess_companion_trap_mode', String(state.companionTrapModeActive));
+  } catch (err) {
+    console.debug('Failed to save trap mode state to localStorage:', err);
+  }
+  updateTrapModeToggleUI();
+
+  // If a snapshot is currently displayed, re-render trap and primary move suggestions
+  if (state.companionSnapshot) {
+    const lang = getLanguage();
+    const trap = state.companionTrapSuggestion;
+    renderCompanionTrapSuggestion(trap);
+
+    if (state.companionPrevAnalysis) {
+      const prev = state.companionPrevAnalysis;
+      const scoreText = formatEvalScore(prev.eval, state.companionSnapshot.turn);
+      const primaryHint = resolveCompanionPrimaryHint({
+        bestMoveUci: prev.bestMoveUci,
+        scoreText,
+        trap,
+        trapModeActive: state.companionTrapModeActive,
+        secondBestMoveUci: prev.secondBestMoveUci,
+        secondBestScoreText: prev.secondBestEval ? formatEvalScore(prev.secondBestEval, state.companionSnapshot.turn) : '',
+        bestEval: prev.eval,
+        secondBestEval: prev.secondBestEval,
+        streak: state.companionBestMoveStreak,
+        threshold: state.companionAntiStreakThreshold,
+        antiStreakActive: state.companionAntiStreakActive,
+        continuousAttackActive: state.companionContinuousAttackActive,
+        kingSacrifice: state.companionKingSacrificeAttack,
+        moverColor: state.companionSnapshot.turn,
+        lang,
+      });
+
+      if (elements.companionBestmoveLabel) {
+        elements.companionBestmoveLabel.textContent = primaryHint.label;
+        elements.companionBestmoveLabel.style.color = primaryHint.isAttackSacrificePrimary || primaryHint.isTrapPrimary
+          ? '#ef4444'
+          : primaryHint.isAntiStreakPrimary
+            ? '#f59e0b'
+            : '#81b64c';
+      }
+
+      const trapCard = formatTrapCard(trap, lang);
+      renderCompanionBestMoveArrow(
+        primaryHint.primaryMoveUci,
+        trapCard?.moveUci,
+        primaryHint.primaryColor
+      );
+    }
+  }
+}
+
+/**
+ * Synchronizes the Continuous King-Sacrifice Attack Mode toggle button appearance, text, and ARIA state.
+ *
+ * @returns {void}
+ */
+function updateContinuousAttackToggleUI() {
+  if (!elements.companionAttackToggleBtn) {
+    return;
+  }
+  const isActive = Boolean(state.companionContinuousAttackActive);
+  elements.companionAttackToggleBtn.classList.toggle('is-active', isActive);
+  elements.companionAttackToggleBtn.setAttribute('aria-pressed', String(isActive));
+  const { buttonText, titleText } = formatContinuousAttackButtonText(isActive, getLanguage());
+  elements.companionAttackToggleBtn.textContent = buttonText;
+  elements.companionAttackToggleBtn.setAttribute('title', titleText);
+}
+
+/**
+ * Toggles the Continuous King-Sacrifice Attack Mode on or off and refreshes the live companion presentation.
+ *
+ * @returns {void}
+ */
+function toggleCompanionContinuousAttackMode() {
+  state.companionContinuousAttackActive = !state.companionContinuousAttackActive;
+  try {
+    localStorage.setItem('chess_companion_attack_mode', String(state.companionContinuousAttackActive));
+  } catch (err) {
+    console.debug('Failed to save continuous attack mode state to localStorage:', err);
+  }
+  updateContinuousAttackToggleUI();
+
+  // If a snapshot is currently displayed, re-render suggestions immediately
+  if (state.companionSnapshot) {
+    const lang = getLanguage();
+    const trap = state.companionContinuousAttackActive && state.companionKingSacrificeAttack
+      ? state.companionKingSacrificeAttack
+      : state.companionTrapSuggestion;
+    renderCompanionTrapSuggestion(trap);
+
+    if (state.companionPrevAnalysis) {
+      const prev = state.companionPrevAnalysis;
+      const scoreText = formatEvalScore(prev.eval, state.companionSnapshot.turn);
+      const primaryHint = resolveCompanionPrimaryHint({
+        bestMoveUci: prev.bestMoveUci,
+        scoreText,
+        trap,
+        trapModeActive: state.companionTrapModeActive,
+        secondBestMoveUci: prev.secondBestMoveUci,
+        secondBestScoreText: prev.secondBestEval ? formatEvalScore(prev.secondBestEval, state.companionSnapshot.turn) : '',
+        bestEval: prev.eval,
+        secondBestEval: prev.secondBestEval,
+        streak: state.companionBestMoveStreak,
+        threshold: state.companionAntiStreakThreshold,
+        antiStreakActive: state.companionAntiStreakActive,
+        continuousAttackActive: state.companionContinuousAttackActive,
+        kingSacrifice: state.companionKingSacrificeAttack,
+        moverColor: state.companionSnapshot.turn,
+        lang,
+      });
+
+      if (elements.companionBestmoveLabel) {
+        elements.companionBestmoveLabel.textContent = primaryHint.label;
+        elements.companionBestmoveLabel.style.color = primaryHint.isAttackSacrificePrimary || primaryHint.isTrapPrimary
+          ? '#ef4444'
+          : primaryHint.isAntiStreakPrimary
+            ? '#f59e0b'
+            : '#81b64c';
+      }
+
+      const trapCard = formatTrapCard(trap, lang);
+      renderCompanionBestMoveArrow(
+        primaryHint.primaryMoveUci,
+        trapCard?.moveUci,
+        primaryHint.primaryColor
+      );
+    }
+  }
+}
+
+/**
+ * Synchronizes the Anti-Streak toggle button appearance, text, and ARIA state.
+ *
+ * @returns {void}
+ */
+function updateAntiStreakToggleUI() {
+  if (!elements.companionAntiStreakToggleBtn) {
+    return;
+  }
+  const lang = getLanguage();
+  const info = formatAntiStreakButtonText(
+    state.companionAntiStreakActive,
+    state.companionBestMoveStreak,
+    state.companionAntiStreakThreshold,
+    lang
+  );
+  elements.companionAntiStreakToggleBtn.textContent = info.buttonText;
+  elements.companionAntiStreakToggleBtn.title = info.titleText;
+  elements.companionAntiStreakToggleBtn.classList.toggle('is-active', Boolean(state.companionAntiStreakActive));
+  elements.companionAntiStreakToggleBtn.classList.toggle('is-triggered', info.isTriggered);
+  elements.companionAntiStreakToggleBtn.setAttribute('aria-pressed', String(state.companionAntiStreakActive));
+}
+
+/**
+ * Toggles the Anti-Streak protection mode on or off and updates the live recommendations.
+ *
+ * @returns {void}
+ */
+function toggleCompanionAntiStreakMode() {
+  state.companionAntiStreakActive = !state.companionAntiStreakActive;
+  try {
+    localStorage.setItem('chess_companion_anti_streak', String(state.companionAntiStreakActive));
+  } catch (err) {
+    console.debug('Failed to save anti-streak mode state to localStorage:', err);
+  }
+  updateAntiStreakToggleUI();
+
+  // If a snapshot is currently displayed, refresh hint recommendations
+  if (state.companionSnapshot && state.companionPrevAnalysis) {
+    const lang = getLanguage();
+    const trap = state.companionTrapSuggestion;
+    const prev = state.companionPrevAnalysis;
+    const scoreText = formatEvalScore(prev.eval, state.companionSnapshot.turn);
+    const primaryHint = resolveCompanionPrimaryHint({
+      bestMoveUci: prev.bestMoveUci,
+      scoreText,
+      trap,
+      trapModeActive: state.companionTrapModeActive,
+      secondBestMoveUci: prev.secondBestMoveUci,
+      secondBestScoreText: prev.secondBestEval ? formatEvalScore(prev.secondBestEval, state.companionSnapshot.turn) : '',
+      bestEval: prev.eval,
+      secondBestEval: prev.secondBestEval,
+      streak: state.companionBestMoveStreak,
+      threshold: state.companionAntiStreakThreshold,
+      antiStreakActive: state.companionAntiStreakActive,
+      continuousAttackActive: state.companionContinuousAttackActive,
+      kingSacrifice: state.companionKingSacrificeAttack,
+      moverColor: state.companionSnapshot.turn,
+      lang,
+    });
+
+    if (elements.companionBestmoveLabel) {
+      elements.companionBestmoveLabel.textContent = primaryHint.label;
+      elements.companionBestmoveLabel.style.color = primaryHint.isAttackSacrificePrimary || primaryHint.isTrapPrimary
+        ? '#ef4444'
+        : primaryHint.isAntiStreakPrimary
+          ? '#f59e0b'
+          : '#81b64c';
+    }
+
+    const trapCard = formatTrapCard(trap, lang);
+    renderCompanionBestMoveArrow(
+      primaryHint.primaryMoveUci,
+      trapCard?.moveUci,
+      primaryHint.primaryColor
+    );
+  }
 }
 
 /**
@@ -639,7 +1162,68 @@ async function handleCompanionSnapshot(snapshot) {
     state.companionPrevAnalysis = null;
     state.companionGradedMoves = [];
     state.companionLastGrade = null;
+    state.companionBestMoveStreak = 0;
+    updateAntiStreakToggleUI();
+    updateContinuousAttackToggleUI();
+    state.companionTrapSuggestion = null;
+    state.companionKingSacrificeAttack = null;
+    state.companionActiveComboChain = null;
+    state.companionComboStep = 1;
+    renderCompanionTrapSuggestion(null);
+    renderCompanionProactiveTraps(null);
   }
+
+  // Evaluate continuous trap chain progression if a trap combo is currently active
+  const opponentMoveUci =
+    snapshot.lastMove?.from && snapshot.lastMove?.to
+      ? `${snapshot.lastMove.from}${snapshot.lastMove.to}`
+      : null;
+
+  if (state.companionActiveComboChain && opponentMoveUci) {
+    const chainProgression = resolveContinuousTrapChain({
+      currentTrap: state.companionActiveComboChain,
+      currentStep: state.companionComboStep,
+      lastOpponentMoveUci: opponentMoveUci,
+      currentFen: snapshot.fen,
+    });
+
+    if (chainProgression.status === 'punishing') {
+      state.companionComboStep = chainProgression.step;
+      state.companionTrapSuggestion = {
+        ...state.companionActiveComboChain,
+        suggestedMoveUci: chainProgression.nextMoveUci,
+      };
+      renderCompanionTrapSuggestion(state.companionTrapSuggestion);
+    } else if (chainProgression.status === 'pivoting') {
+      state.companionActiveComboChain = chainProgression.trap;
+      state.companionComboStep = 1;
+      state.companionTrapSuggestion = chainProgression.trap;
+      renderCompanionTrapSuggestion(chainProgression.trap);
+    } else if (chainProgression.status === 'completed' || chainProgression.status === 'broken') {
+      state.companionActiveComboChain = null;
+      state.companionComboStep = 1;
+    }
+  }
+
+  // Check instant opening catalog trap before engine search completes
+  const instantTrap = resolveTrapSuggestion({
+    fen: snapshot.fen,
+    lastMove: snapshot.lastMove,
+  });
+  if (instantTrap) {
+    state.companionTrapSuggestion = instantTrap;
+    state.companionActiveComboChain = instantTrap;
+    state.companionComboStep = 1;
+    renderCompanionTrapSuggestion(instantTrap);
+  } else if (!state.companionActiveComboChain && shouldAnalyze) {
+    state.companionTrapSuggestion = null;
+    renderCompanionTrapSuggestion(null);
+  }
+
+  // Discover proactive achievable opening traps from current position
+  const activeSide = snapshot.turn === 'b' ? 'b' : 'w';
+  const proactiveCandidates = findProactiveTraps(snapshot.fen, { currentSide: activeSide });
+  renderCompanionProactiveTraps(proactiveCandidates);
 
   // Sync board orientation with the snapshot perspective
   const targetOrientation = resolveCompanionBoardOrientation(snapshot.orientation);
@@ -703,10 +1287,11 @@ async function handleCompanionSnapshot(snapshot) {
       const analysisFen = inferredMove
         ? setFenTurn(snapshot.fen, inferredMove.moverColor === 'w' ? 'b' : 'w')
         : snapshot.fen;
+      const targetMultiPv = state.companionContinuousAttackActive ? 3 : 2;
       const result = await state.analyzer.analyzePosition(analysisFen, {
         depth: 12,
         signal,
-        multiPv: 2,
+        multiPv: targetMultiPv,
       });
 
       if (signal.aborted) {
@@ -717,12 +1302,18 @@ async function handleCompanionSnapshot(snapshot) {
       const prev = state.companionPrevAnalysis;
       const grade =
         prev && hasSamePlacement(prev.fen, previousSnapshotFen)
-          ? gradeCompanionMove({ prev, snapshot: { fen: analysisFen }, analysis: result })
+          ? gradeCompanionMove({
+              prev,
+              snapshot: { fen: analysisFen },
+              analysis: result,
+              trapSuggestion: state.companionTrapSuggestion,
+            })
           : null;
       state.companionPrevAnalysis = {
         fen: analysisFen,
         eval: result.eval,
         secondBestEval: result.secondBestEval,
+        secondBestMoveUci: result.secondBestMoveUci,
         bestMoveUci: result.bestMoveUci,
       };
       state.companionLastGrade = grade;
@@ -732,21 +1323,94 @@ async function handleCompanionSnapshot(snapshot) {
           classification: grade.classification,
           accuracy: grade.accuracy,
         });
+        // Track streak of consecutive best moves for the human player
+        const playerColor = snapshot.orientation === 'black' ? 'b' : 'w';
+        state.companionBestMoveStreak = computeConsecutiveBestMovesStreak(
+          state.companionGradedMoves,
+          playerColor
+        );
+        updateAntiStreakToggleUI();
       }
       renderCompanionMoveReview(snapshot, grade);
 
       const scoreText = formatEvalScore(result.eval, snapshot.turn);
-      const hintText = formatBestMoveHint(result.bestMoveUci, scoreText, lang);
+      // Coordinate trap suggestion from catalog or engine tactical heuristic
+      const trap = resolveTrapSuggestion({
+        fen: analysisFen,
+        analysis: result,
+        lastMove: snapshot.lastMove,
+      });
+      state.companionTrapSuggestion = trap;
+      if (trap) {
+        state.companionActiveComboChain = trap;
+      }
+
+      // Detect aggressive king-hunting piece sacrifices
+      const candidateLines = [
+        { uci: result.bestMoveUci, pv: result.pv, eval: result.eval },
+      ];
+      if (result.secondBestMoveUci) {
+        candidateLines.push({
+          uci: result.secondBestMoveUci,
+          pv: [result.secondBestMoveUci],
+          eval: result.secondBestEval,
+        });
+      }
+      const kingSacrifice = detectKingSacrificeAttack({
+        fen: analysisFen,
+        bestMoveUci: result.bestMoveUci,
+        pv: result.pv,
+        evalScore: result.eval,
+        candidateLines,
+      });
+      state.companionKingSacrificeAttack = kingSacrifice;
+
+      // When Continuous Attack Mode is active and a king sacrifice is found, render the attack card
+      if (state.companionContinuousAttackActive && kingSacrifice) {
+        renderCompanionTrapSuggestion(kingSacrifice);
+      } else {
+        renderCompanionTrapSuggestion(trap);
+      }
+
+      const activeCard =
+        state.companionContinuousAttackActive && kingSacrifice ? kingSacrifice : trap;
+      const trapCard = formatTrapCard(activeCard, lang);
+      const primaryHint = resolveCompanionPrimaryHint({
+        bestMoveUci: result.bestMoveUci,
+        scoreText,
+        trap,
+        trapModeActive: state.companionTrapModeActive,
+        secondBestMoveUci: result.secondBestMoveUci,
+        secondBestScoreText: result.secondBestEval ? formatEvalScore(result.secondBestEval, snapshot.turn) : '',
+        bestEval: result.eval,
+        secondBestEval: result.secondBestEval,
+        streak: state.companionBestMoveStreak,
+        threshold: state.companionAntiStreakThreshold,
+        antiStreakActive: state.companionAntiStreakActive,
+        continuousAttackActive: state.companionContinuousAttackActive,
+        kingSacrifice,
+        moverColor: snapshot.turn,
+        lang,
+      });
 
       if (elements.companionBestmoveLabel) {
-        elements.companionBestmoveLabel.textContent = hintText;
+        elements.companionBestmoveLabel.textContent = primaryHint.label;
+        elements.companionBestmoveLabel.style.color = primaryHint.isAttackSacrificePrimary || primaryHint.isTrapPrimary
+          ? '#ef4444'
+          : primaryHint.isAntiStreakPrimary
+            ? '#f59e0b'
+            : '#81b64c';
       }
       if (elements.companionEvalText) {
         elements.companionEvalText.textContent = `${lang === 'en' ? 'Depth' : 'Độ sâu'}: ${result.depth}`;
       }
 
       renderCompanionEval(result.eval, snapshot.turn);
-      renderCompanionBestMoveArrow(result.bestMoveUci);
+      renderCompanionBestMoveArrow(
+        primaryHint.primaryMoveUci,
+        trapCard?.moveUci,
+        primaryHint.primaryColor
+      );
     }
   } catch (err) {
     if (err?.name !== 'AbortError') {
@@ -1370,8 +2034,9 @@ function appendBoardArrow(id, color, p1, p2) {
     defs = document.createElementNS(ns, 'defs');
     elements.boardArrows.appendChild(defs);
   }
-  if (!elements.boardArrows.querySelector(`#${id}`)) {
-    const marker = document.createElementNS(ns, 'marker');
+  let marker = elements.boardArrows.querySelector(`#${id}`);
+  if (!marker) {
+    marker = document.createElementNS(ns, 'marker');
     marker.setAttribute('id', id);
     marker.setAttribute('markerWidth', '4');
     marker.setAttribute('markerHeight', '4');
@@ -1383,6 +2048,11 @@ function appendBoardArrow(id, color, p1, p2) {
     polygon.setAttribute('fill', color);
     marker.appendChild(polygon);
     defs.appendChild(marker);
+  } else {
+    const polygon = marker.querySelector('polygon');
+    if (polygon) {
+      polygon.setAttribute('fill', color);
+    }
   }
 
   // Pull back the endpoint slightly so the arrowhead tip rests cleanly inside the target square.
@@ -2086,6 +2756,9 @@ function applyLanguage(lang) {
   });
 
   syncSoundUi();
+  updateTrapModeToggleUI();
+  updateContinuousAttackToggleUI();
+  updateAntiStreakToggleUI();
 
   const fsMeta = resolveFullscreenButtonMetadata(state.isFullscreen, lang);
   if (elements.boardFullscreenBtn) {
@@ -3761,7 +4434,20 @@ function setupMobileChatFabDrag() {
  */
 async function bootstrapApp() {
   initI18n();
+  try {
+    state.companionTrapModeActive = localStorage.getItem('chess_companion_trap_mode') === 'true';
+    state.companionContinuousAttackActive = localStorage.getItem('chess_companion_attack_mode') === 'true';
+    const antiStreakStored = localStorage.getItem('chess_companion_anti_streak');
+    state.companionAntiStreakActive = antiStreakStored === null ? true : antiStreakStored === 'true';
+  } catch {
+    state.companionTrapModeActive = false;
+    state.companionContinuousAttackActive = false;
+    state.companionAntiStreakActive = true;
+  }
   applyLanguage(getLanguage());
+  updateTrapModeToggleUI();
+  updateContinuousAttackToggleUI();
+  updateAntiStreakToggleUI();
   setMobileNavCollapsed(true);
   setupMobileChatFabDrag();
   try {
@@ -3872,6 +4558,9 @@ elements.tabSetupBtn.addEventListener('click', () => setActiveTab('setup'));
 elements.tabCompanionBtn?.addEventListener('click', () => setActiveTab('companion'));
 elements.navCompanionBtn?.addEventListener('click', () => setActiveTab('companion'));
 elements.companionCopyScriptBtn?.addEventListener('click', copyCompanionRelayScript);
+elements.companionTrapToggleBtn?.addEventListener('click', toggleCompanionTrapMode);
+elements.companionAttackToggleBtn?.addEventListener('click', toggleCompanionContinuousAttackMode);
+elements.companionAntiStreakToggleBtn?.addEventListener('click', toggleCompanionAntiStreakMode);
 elements.subtabMovesBtn.addEventListener('click', () => setPlaySubtab('moves'));
 elements.subtabChatBtn.addEventListener('click', () => setPlaySubtab('chat'));
 elements.chatForm.addEventListener('submit', (event) => {

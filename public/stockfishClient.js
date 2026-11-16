@@ -133,7 +133,7 @@ export function createStockfishAnalyzer({
    *
    * @param {string} fen - Valid FEN position string.
    * @param {{ depth?: number, signal?: AbortSignal, multiPv?: number }} [options] - Search depth, abort signal, and number of principal variations (default 1).
-   * @returns {Promise<{ eval: { cp: number | null, mate: number | null }, secondBestEval: { cp: number | null, mate: number | null } | null, bestMoveUci: string | null, pv: string[], depth: number }>} Evaluation snapshot.
+   * @returns {Promise<{ eval: { cp: number | null, mate: number | null }, secondBestEval: { cp: number | null, mate: number | null } | null, secondBestMoveUci: string | null, bestMoveUci: string | null, pv: string[], depth: number }>} Evaluation snapshot.
    */
   async function analyzePosition(fen, options = {}) {
     const targetDepth = options.depth ?? depth;
@@ -196,6 +196,7 @@ export function createStockfishAnalyzer({
               ? { cp: latestInfo.cp, mate: latestInfo.mate }
               : { cp: null, mate: null },
             secondBestEval: secondInfo ? { cp: secondInfo.cp, mate: secondInfo.mate } : null,
+            secondBestMoveUci: secondInfo?.bestMoveUci ?? null,
             bestMoveUci,
             pv: latestInfo?.pv ?? [],
             depth: latestInfo?.depth ?? 0,

@@ -1,0 +1,272 @@
+{
+  ".github/workflows/ci.yml": {
+    "mtime": 1794473479.8804922,
+    "seen": 1794793164.0289989,
+    "ast_hash": "159f3256e1fe0febc48e4bf8045b5243",
+    "semantic_hash": "159f3256e1fe0febc48e4bf8045b5243"
+  },
+  "package.json": {
+    "mtime": 1794795673.0471356,
+    "seen": 1794795680.0225315,
+    "ast_hash": "77abf181d43d0db06f3882e29867aca2",
+    "semantic_hash": ""
+  },
+  "public/analysisHelper.js": {
+    "mtime": 1794807420.1707723,
+    "seen": 1794807472.5455155,
+    "ast_hash": "8d2ee0381461bb9036f14a540505a3f2",
+    "semantic_hash": ""
+  },
+  "public/app.js": {
+    "mtime": 1794807234.5577664,
+    "seen": 1794807472.5455155,
+    "ast_hash": "98e6f4287bac80e34ddb5f916ab31dd5",
+    "semantic_hash": ""
+  },
+  "public/chessAssets.js": {
+    "mtime": 1794800468.5085435,
+    "seen": 1794800704.1166308,
+    "ast_hash": "090434acdce16b004f645f2bd074d801",
+    "semantic_hash": ""
+  },
+  "public/chessUiHelper.js": {
+    "mtime": 1794546627.8422663,
+    "seen": 1794793164.0289989,
+    "ast_hash": "214fab00d1c35258e0065bb425828b17",
+    "semantic_hash": "214fab00d1c35258e0065bb425828b17"
+  },
+  "public/companionHelper.js": {
+    "mtime": 1794566099.3466523,
+    "seen": 1794793164.0289989,
+    "ast_hash": "d1e85475df370bf5cf9abd016e7f8548",
+    "semantic_hash": "d1e85475df370bf5cf9abd016e7f8548"
+  },
+  "public/companionUiHelper.js": {
+    "mtime": 1794807439.358041,
+    "seen": 1794807472.5455155,
+    "ast_hash": "2208517fa6f600f1676103f95c6449bf",
+    "semantic_hash": ""
+  },
+  "public/i18n.js": {
+    "mtime": 1794806754.0546956,
+    "seen": 1794807211.300591,
+    "ast_hash": "2b4ee37d819db4ab1c6a7ea6869c39a9",
+    "semantic_hash": ""
+  },
+  "public/reviewHelper.js": {
+    "mtime": 1794464358.946093,
+    "seen": 1794793164.0289989,
+    "ast_hash": "80acd01f33d4eb4a283980c4358eed06",
+    "semantic_hash": "80acd01f33d4eb4a283980c4358eed06"
+  },
+  "public/stockfishClient.js": {
+    "mtime": 1794805537.068126,
+    "seen": 1794805606.6600108,
+    "ast_hash": "e48c97f32e40fd4fee08a82ec71e9474",
+    "semantic_hash": ""
+  },
+  "render.yaml": {
+    "mtime": 1794473479.9200914,
+    "seen": 1794793164.0289989,
+    "ast_hash": "697d69648e18b9613a5204d4f180d923",
+    "semantic_hash": "697d69648e18b9613a5204d4f180d923"
+  },
+  "src/domain/aiEngine.js": {
+    "mtime": 1794463053.3147197,
+    "seen": 1794793164.0289989,
+    "ast_hash": "05c05b32a8afd91e4b08c9f87ee026f0",
+    "semantic_hash": "05c05b32a8afd91e4b08c9f87ee026f0"
+  },
+  "src/domain/botProfiles.js": {
+    "mtime": 1794467399.8896947,
+    "seen": 1794793164.0289989,
+    "ast_hash": "f7d733cc69813187ad3b49ff650d312e",
+    "semantic_hash": "f7d733cc69813187ad3b49ff650d312e"
+  },
+  "src/domain/companionDomain.js": {
+    "mtime": 1794560503.6442385,
+    "seen": 1794793164.0289989,
+    "ast_hash": "1137e795560687082d782c453c1a8716",
+    "semantic_hash": "1137e795560687082d782c453c1a8716"
+  },
+  "src/domain/timeControls.js": {
+    "mtime": 1794467399.9439244,
+    "seen": 1794793164.0289989,
+    "ast_hash": "fa17cf7790fd5773991dcf2bb591d6d3",
+    "semantic_hash": "fa17cf7790fd5773991dcf2bb591d6d3"
+  },
+  "src/main.js": {
+    "mtime": 1794476546.3522398,
+    "seen": 1794793164.0289989,
+    "ast_hash": "bb892d7d17ec85cec09f5b5c756064cc",
+    "semantic_hash": "bb892d7d17ec85cec09f5b5c756064cc"
+  },
+  "src/server/chatWs.js": {
+    "mtime": 1794479595.9454043,
+    "seen": 1794793164.0289989,
+    "ast_hash": "0e6f7ef1e516a84b0442e05196afe01e",
+    "semantic_hash": "0e6f7ef1e516a84b0442e05196afe01e"
+  },
+  "src/server/httpServer.js": {
+    "mtime": 1794560514.0060365,
+    "seen": 1794793164.0289989,
+    "ast_hash": "7f4239745c2963025719f6ca2c957d03",
+    "semantic_hash": "7f4239745c2963025719f6ca2c957d03"
+  },
+  "src/server/validators.js": {
+    "mtime": 1794552125.6151538,
+    "seen": 1794793164.0289989,
+    "ast_hash": "9de84678ef1b35f1e8ead5cbf1bb1965",
+    "semantic_hash": "9de84678ef1b35f1e8ead5cbf1bb1965"
+  },
+  "src/service/companionService.js": {
+    "mtime": 1794560503.8795233,
+    "seen": 1794793164.0289989,
+    "ast_hash": "b850fd4f12f2405a157f5f39cef93745",
+    "semantic_hash": "b850fd4f12f2405a157f5f39cef93745"
+  },
+  "src/service/gameService.js": {
+    "mtime": 1794479619.8107493,
+    "seen": 1794793164.0289989,
+    "ast_hash": "fd4683cb51b72fee9a179f6caed07020",
+    "semantic_hash": "fd4683cb51b72fee9a179f6caed07020"
+  },
+  "tests/aiEngine.test.js": {
+    "mtime": 1794463053.4597702,
+    "seen": 1794793164.0289989,
+    "ast_hash": "7ca7ab00aeefb02177c578fe74e024c8",
+    "semantic_hash": "7ca7ab00aeefb02177c578fe74e024c8"
+  },
+  "tests/analysisHelper.test.js": {
+    "mtime": 1794805537.3520157,
+    "seen": 1794805606.6600108,
+    "ast_hash": "5b03f1335ea0859fa93fd183c8af964f",
+    "semantic_hash": ""
+  },
+  "tests/botAndTimeDomain.test.js": {
+    "mtime": 1794467400.265241,
+    "seen": 1794793164.0289989,
+    "ast_hash": "2dd07bc951d91dd5be4b1a1102fb1ac1",
+    "semantic_hash": "2dd07bc951d91dd5be4b1a1102fb1ac1"
+  },
+  "tests/chessUiHelper.test.js": {
+    "mtime": 1794544672.7496648,
+    "seen": 1794793164.0289989,
+    "ast_hash": "6704ac94da245e505856ace74d750c67",
+    "semantic_hash": "6704ac94da245e505856ace74d750c67"
+  },
+  "tests/companionDomain.test.js": {
+    "mtime": 1794560514.2640963,
+    "seen": 1794793164.0289989,
+    "ast_hash": "25a284d007d6b2e96895d89f31c9d8a8",
+    "semantic_hash": "25a284d007d6b2e96895d89f31c9d8a8"
+  },
+  "tests/companionHelper.test.js": {
+    "mtime": 1794566084.8051064,
+    "seen": 1794793164.0289989,
+    "ast_hash": "bfb2b1f6c98ef876d6acecb72f52fbb1",
+    "semantic_hash": "bfb2b1f6c98ef876d6acecb72f52fbb1"
+  },
+  "tests/companionHttp.test.js": {
+    "mtime": 1794560504.2006042,
+    "seen": 1794793164.0289989,
+    "ast_hash": "92fbc42bf6dc5b8874de4005fd91e70d",
+    "semantic_hash": "92fbc42bf6dc5b8874de4005fd91e70d"
+  },
+  "tests/companionService.test.js": {
+    "mtime": 1794560504.2735472,
+    "seen": 1794793164.0289989,
+    "ast_hash": "89ab1b2f2548e8092cb3c4aeb7ed969a",
+    "semantic_hash": "89ab1b2f2548e8092cb3c4aeb7ed969a"
+  },
+  "tests/companionUi.test.js": {
+    "mtime": 1794807400.203029,
+    "seen": 1794807472.5455155,
+    "ast_hash": "1e6791a8e63964fea592999139771a33",
+    "semantic_hash": ""
+  },
+  "tests/gameService.test.js": {
+    "mtime": 1794479176.6822186,
+    "seen": 1794793164.0289989,
+    "ast_hash": "268709a93717498d0333a54822f63b3d",
+    "semantic_hash": "268709a93717498d0333a54822f63b3d"
+  },
+  "tests/httpServer.test.js": {
+    "mtime": 1794550461.9219432,
+    "seen": 1794793164.0289989,
+    "ast_hash": "752b337a2a4f246482f0939866762a4b",
+    "semantic_hash": "752b337a2a4f246482f0939866762a4b"
+  },
+  "tests/i18n.test.js": {
+    "mtime": 1794549421.1092825,
+    "seen": 1794793164.0289989,
+    "ast_hash": "f3fd872f3bf6d3ff29ed67bbe356e2d3",
+    "semantic_hash": "f3fd872f3bf6d3ff29ed67bbe356e2d3"
+  },
+  "tests/reviewHelper.test.js": {
+    "mtime": 1794464359.0981667,
+    "seen": 1794793164.0289989,
+    "ast_hash": "33ae8fcb74d8e8dc996a85e029cbf3d5",
+    "semantic_hash": "33ae8fcb74d8e8dc996a85e029cbf3d5"
+  },
+  "tests/stockfishClient.test.js": {
+    "mtime": 1794803880.2262666,
+    "seen": 1794804528.5339596,
+    "ast_hash": "a9f68d217d47e8ee6de110a5f2078b2d",
+    "semantic_hash": ""
+  },
+  "public/trapHelper.js": {
+    "mtime": 1794806516.2844243,
+    "seen": 1794807211.300591,
+    "ast_hash": "b28d1d245e728337382ca17ad28d50c9",
+    "semantic_hash": ""
+  },
+  "tests/trapHelper.test.js": {
+    "mtime": 1794806447.5889568,
+    "seen": 1794807211.300591,
+    "ast_hash": "7d5b9d754b4da38cdfbb33f5ea3ab266",
+    "semantic_hash": ""
+  },
+  "CLAUDE.md": {
+    "mtime": 1794463052.697508,
+    "seen": 1794795680.0225315,
+    "ast_hash": "d7cd63c13b596b692b94a799ecd641e8",
+    "semantic_hash": ""
+  },
+  "public/index.html": {
+    "mtime": 1794807447.7051742,
+    "seen": 1794807472.5455155,
+    "ast_hash": "87031eb45457e57796369b398d20bb4b",
+    "semantic_hash": ""
+  },
+  "public/favicon.svg": {
+    "mtime": 1794467908.4205055,
+    "seen": 1794795680.0225315,
+    "ast_hash": "f3b6dfabe82cc8185ab90f8b58d0cd32",
+    "semantic_hash": ""
+  },
+  "AGENTS.md": {
+    "mtime": 1794449167.066511,
+    "seen": 1794798660.9717367,
+    "ast_hash": "89ae8ad92bc191b47a63589167e0a70b",
+    "semantic_hash": ""
+  },
+  "CODING_RULES.md": {
+    "mtime": 1794458232.5977714,
+    "seen": 1794798660.9717367,
+    "ast_hash": "eb19270896de6c21ba9537631381983d",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1794458232.6882863,
+    "seen": 1794798660.9717367,
+    "ast_hash": "fb179766b2cd71089697e20c2cf5c123",
+    "semantic_hash": ""
+  },
+  "package-lock.json": {
+    "mtime": 1794566747.9742434,
+    "seen": 1794795680.0225315,
+    "ast_hash": "cdcba430273c1ae80d47872a8341ec2c",
+    "semantic_hash": ""
+  }
+}

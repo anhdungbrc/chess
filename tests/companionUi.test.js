@@ -10,6 +10,11 @@ import {
   hasSamePlacement,
   inferMoveFromBoards,
   setFenTurn,
+  formatTrapCard,
+  formatAntiStreakButtonText,
+  formatContinuousAttackButtonText,
+  resolveCompanionPrimaryHint,
+  formatProactiveTrapList,
 } from '../public/companionUiHelper.js';
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -156,6 +161,26 @@ test('gradeCompanionMove grades a blunder', () => {
 });
 
 /**
+ * Verifies gradeCompanionMove recognizes intentional risky trap move instead of treating it purely as a blunder.
+ */
+test('gradeCompanionMove recognizes intentional risky trap move when trapSuggestion matches', () => {
+  const trapSuggestion = {
+    id: 'blackburne_shilling',
+    suggestedMoveUci: 'e2e4',
+    name: { vi: 'Bẫy Blackburne', en: 'Blackburne Trap' },
+    type: 'offensive',
+  };
+  const graded = gradeCompanionMove({
+    prev: { fen: START_FEN, eval: { cp: 30, mate: null }, secondBestEval: null, bestMoveUci: 'd2d4' },
+    snapshot: { fen: MOVE_FEN, turn: 'b', lastMove: { from: 'e2', to: 'e4' } },
+    analysis: { eval: { cp: -900, mate: null }, bestMoveUci: 'e7e5' },
+    trapSuggestion,
+  });
+  assert.equal(graded.classification, 'risky_trap');
+  assert.equal(graded.isTrapMove, true);
+});
+
+/**
  * Verifies gradeCompanionMove ignores an unreliable relay turn on the new snapshot and relies on board diff.
  * Expected: a wrong snapshot.turn / missing lastMove still grades the move.
  */
@@ -223,3 +248,366 @@ test('setFenTurn and hasSamePlacement operate on the FEN fields they own', () =>
   assert.equal(hasSamePlacement(START_FEN, MOVE_FEN), false);
   assert.equal(hasSamePlacement(null, START_FEN), false);
 });
+
+/**
+ * Validates formatTrapCard constructs presentation model for offensive, defensive, and tactical traps.
+ */
+test('formatTrapCard formats viewModel for companion trap cards across languages', () => {
+  // 1. Null trap returns null
+  assert.equal(formatTrapCard(null, 'vi'), null);
+
+  // 2. Offensive trap
+  const offensiveMock = {
+    id: 'legal_trap',
+    name: { vi: 'Bẫy Légal', en: "Légal's Trap" },
+    type: 'offensive',
+    suggestedMoveUci: 'f3e5',
+    description: { vi: 'Thí Hậu bằng Nxe5!', en: 'Queen sacrifice with Nxe5!' },
+  };
+
+  const cardVi = formatTrapCard(offensiveMock, 'vi');
+  assert.ok(cardVi);
+  assert.equal(cardVi.badgeClass, 'trap-badge-offensive');
+  assert.ok(cardVi.badgeText.includes('tấn công'));
+  assert.equal(cardVi.titleText, 'Bẫy Légal');
+  assert.ok(cardVi.moveText.includes('f3e5'));
+  assert.equal(cardVi.descText, 'Thí Hậu bằng Nxe5!');
+  assert.equal(cardVi.moveUci, 'f3e5');
+  assert.equal(cardVi.arrowColor, 'rgba(239, 68, 68, 0.95)', 'Offensive trap arrow should be high-visibility red');
+
+  const cardEn = formatTrapCard(offensiveMock, 'en');
+  assert.ok(cardEn);
+  assert.ok(cardEn.badgeText.includes('Offensive'));
+  assert.equal(cardEn.titleText, "Légal's Trap");
+
+  // 3. Defensive warning trap
+  const defensiveMock = {
+    id: 'legal_trap',
+    name: { vi: 'Cảnh báo Bẫy Légal', en: "Légal's Trap Alert" },
+    type: 'defensive',
+    suggestedMoveUci: 'd6e5',
+    punishAvoidUci: 'g4d1',
+    description: { vi: 'Đừng ăn Hậu!', en: 'Do not take Queen!' },
+  };
+
+  const cardDef = formatTrapCard(defensiveMock, 'vi');
+  assert.ok(cardDef);
+  assert.equal(cardDef.badgeClass, 'trap-badge-defensive');
+  assert.ok(cardDef.badgeText.includes('Cảnh báo'));
+  assert.ok(cardDef.avoidText.includes('g4d1'));
+
+  // 4. Risky trap
+  const riskyMock = {
+    id: 'risky_trap',
+    name: { vi: 'Đòn bẫy Mạo hiểm', en: 'Risky Trap' },
+    type: 'tactical',
+    isRisky: true,
+    suggestedMoveUci: 'g4h2',
+    description: { vi: 'Chấp nhận mạo hiểm', en: 'Accept risk' },
+  };
+  const cardRisky = formatTrapCard(riskyMock, 'vi');
+  assert.ok(cardRisky);
+  assert.equal(cardRisky.arrowColor, 'rgba(239, 68, 68, 0.95)');
+  assert.equal(cardRisky.badgeClass, 'trap-badge-risky');
+  assert.ok(cardRisky.badgeText.includes('Mạo hiểm') || cardRisky.badgeText.includes('mạo hiểm'));
+});
+
+/**
+ * Validates resolveCompanionPrimaryHint prioritizes trap moves when Trap Mode is toggled ON.
+ */
+test('resolveCompanionPrimaryHint overrides primary move and styling when Trap Mode is active', () => {
+  const offensiveTrap = {
+    id: 'legal_trap',
+    name: { vi: 'Bẫy Légal', en: "Légal's Trap" },
+    type: 'offensive',
+    suggestedMoveUci: 'f3e5',
+    sequence: [
+      { move: 'f3e5', san: 'Nxe5!' },
+      { move: 'g4d1', san: 'Bxd1?' },
+      { move: 'c4f7', san: 'Bxf7+' },
+    ],
+  };
+
+  // 1. Trap Mode ON with trap available -> Trap move becomes primary
+  const trapActive = resolveCompanionPrimaryHint({
+    bestMoveUci: 'd2d4',
+    scoreText: '+0.5',
+    trap: offensiveTrap,
+    trapModeActive: true,
+    lang: 'vi',
+  });
+  assert.equal(trapActive.isTrapPrimary, true);
+  assert.equal(trapActive.primaryColor, 'rgba(239, 68, 68, 0.95)', 'Primary trap arrow must be high-visibility red');
+  assert.equal(trapActive.primaryMoveUci, 'f3e5');
+  assert.ok(trapActive.label.includes('f3e5'));
+  assert.ok(trapActive.label.includes('Légal'));
+  assert.equal(trapActive.sequence.length, 3);
+
+  // 2. Trap Mode ON without trap available -> Stockfish move remains with indicator note
+  const trapActiveNoTrap = resolveCompanionPrimaryHint({
+    bestMoveUci: 'e2e4',
+    scoreText: '+0.2',
+    trap: null,
+    trapModeActive: true,
+    lang: 'vi',
+  });
+  assert.equal(trapActiveNoTrap.isTrapPrimary, false);
+  assert.equal(trapActiveNoTrap.primaryMoveUci, 'e2e4');
+  assert.ok(trapActiveNoTrap.label.includes('Chưa có đòn bẫy'));
+
+  // 3. Trap Mode OFF -> Stockfish best move is normal primary
+  const trapInactive = resolveCompanionPrimaryHint({
+    bestMoveUci: 'e2e4',
+    scoreText: '+0.2',
+    trap: offensiveTrap,
+    trapModeActive: false,
+    lang: 'vi',
+  });
+  assert.equal(trapInactive.isTrapPrimary, false);
+  assert.equal(trapInactive.primaryMoveUci, 'e2e4');
+  assert.ok(!trapInactive.label.includes('Bẫy Légal'));
+});
+
+/**
+ * Validates formatProactiveTrapList transforms candidate list into UI view model pills.
+ */
+test('formatProactiveTrapList formats candidates into interactive view model', () => {
+  const candidates = [
+    {
+      trap: {
+        id: 'legal_trap',
+        name: { vi: 'Bẫy Légal', en: "Légal's Trap" },
+      },
+      nextSetupMove: 'f1c4',
+      remainingSteps: 2,
+    },
+  ];
+
+  const listVi = formatProactiveTrapList(candidates, 'vi');
+  assert.equal(listVi.length, 1);
+  assert.equal(listVi[0].id, 'legal_trap');
+  assert.equal(listVi[0].name, 'Bẫy Légal');
+  assert.ok(listVi[0].nextMoveText.includes('f1c4'));
+  assert.equal(listVi[0].setupMoveUci, 'f1c4');
+
+  const listEn = formatProactiveTrapList(candidates, 'en');
+  assert.equal(listEn[0].name, "Légal's Trap");
+
+  assert.deepEqual(formatProactiveTrapList([], 'vi'), []);
+  assert.deepEqual(formatProactiveTrapList(null, 'vi'), []);
+});
+
+/**
+ * Validates formatTrapCard handles extreme sacrifice traps with prominent badge and roadmap steps.
+ */
+test('formatTrapCard formats extreme sacrifice traps with extreme badge and combo roadmap', () => {
+  const extremeSacrificeTrap = {
+    id: 'damiano_trap',
+    name: { vi: 'Bẫy Thí Mã Damiano', en: "Damiano's Trap" },
+    type: 'offensive',
+    isExtremeSacrifice: true,
+    sacrificeLevel: 'minor',
+    suggestedMoveUci: 'f3e5',
+    sequence: [
+      { move: 'f3e5', san: 'Nxe5!', label: { vi: '1. Thí Mã cực mạnh', en: '1. Extreme Knight sacrifice' } },
+      { move: 'f6e5', san: 'fxe5?', label: { vi: '2. Đen sập bẫy ăn Mã', en: '2. Black greedily captures knight' } },
+      { move: 'd1h5', san: 'Qh5+', label: { vi: '3. Hậu chiếu kéo Vua ra ngoài', en: '3. Queen checks' } },
+    ],
+  };
+
+  const cardVi = formatTrapCard(extremeSacrificeTrap, 'vi');
+  assert.ok(cardVi);
+  assert.equal(cardVi.badgeClass, 'trap-badge-extreme');
+  assert.ok(cardVi.badgeText.includes('Thí'));
+  assert.equal(cardVi.isExtremeSacrifice, true);
+  assert.ok(Array.isArray(cardVi.roadmapSteps));
+  assert.equal(cardVi.roadmapSteps.length, 3);
+  assert.equal(cardVi.roadmapSteps[0].isSacrifice, true);
+
+  const cardEn = formatTrapCard(extremeSacrificeTrap, 'en');
+  assert.ok(cardEn);
+  assert.equal(cardEn.badgeClass, 'trap-badge-extreme');
+  assert.ok(cardEn.badgeText.includes('Sacrifice'));
+
+  // resolveCompanionPrimaryHint should feature extreme sacrifice styling
+  const hintVi = resolveCompanionPrimaryHint({
+    bestMoveUci: 'f3e5',
+    trap: extremeSacrificeTrap,
+    trapModeActive: true,
+    lang: 'vi',
+  });
+  assert.ok(hintVi.label.includes('Thí quân'));
+});
+
+/**
+ * Validates resolveCompanionPrimaryHint elevates second best move when streak reaches threshold and runner-up is safe.
+ */
+test('resolveCompanionPrimaryHint promotes safe runner-up move when consecutive streak reaches 10', () => {
+  // Case 1: Active anti-streak, streak reaches threshold 10, runner-up is safe
+  const resultSafe = resolveCompanionPrimaryHint({
+    bestMoveUci: 'e2e4',
+    scoreText: '+0.4',
+    secondBestMoveUci: 'd2d4',
+    secondBestScoreText: '+0.3',
+    bestEval: { cp: 40, mate: null },
+    secondBestEval: { cp: 30, mate: null },
+    streak: 10,
+    threshold: 10,
+    antiStreakActive: true,
+    moverColor: 'w',
+    lang: 'vi',
+  });
+  assert.equal(resultSafe.primaryMoveUci, 'd2d4');
+  assert.equal(resultSafe.primaryColor, 'rgba(245, 158, 11, 0.95)');
+  assert.equal(resultSafe.isAntiStreakPrimary, true);
+  assert.ok(resultSafe.label.includes('Chống chuỗi tối ưu'));
+  assert.ok(resultSafe.label.includes('d2d4'));
+
+  // Case 2: Active anti-streak, streak 10, but runner-up is unsafe (blunder)
+  const resultUnsafe = resolveCompanionPrimaryHint({
+    bestMoveUci: 'e2e4',
+    scoreText: '+0.4',
+    secondBestMoveUci: 'g2g4',
+    secondBestScoreText: '-2.5',
+    bestEval: { cp: 40, mate: null },
+    secondBestEval: { cp: -250, mate: null },
+    streak: 10,
+    threshold: 10,
+    antiStreakActive: true,
+    moverColor: 'w',
+    lang: 'vi',
+  });
+  assert.equal(resultUnsafe.primaryMoveUci, 'e2e4');
+  assert.equal(resultUnsafe.isAntiStreakPrimary, false);
+  assert.ok(resultUnsafe.label.includes('rủi ro cao'));
+
+  // Case 3: Streak below threshold (e.g. 5) -> normal best move
+  const resultBelow = resolveCompanionPrimaryHint({
+    bestMoveUci: 'e2e4',
+    scoreText: '+0.4',
+    secondBestMoveUci: 'd2d4',
+    secondBestScoreText: '+0.3',
+    bestEval: { cp: 40, mate: null },
+    secondBestEval: { cp: 30, mate: null },
+    streak: 3,
+    threshold: 5,
+    antiStreakActive: true,
+    moverColor: 'w',
+    lang: 'vi',
+  });
+  assert.equal(resultBelow.primaryMoveUci, 'e2e4');
+  assert.equal(resultBelow.isAntiStreakPrimary, false);
+});
+
+/**
+ * Validates resolveCompanionPrimaryHint defaults anti-streak threshold to 5.
+ */
+test('resolveCompanionPrimaryHint defaults anti-streak threshold to 5 and promotes safe runner-up', () => {
+  const result = resolveCompanionPrimaryHint({
+    bestMoveUci: 'e2e4',
+    scoreText: '+0.4',
+    secondBestMoveUci: 'd2d4',
+    secondBestScoreText: '+0.3',
+    bestEval: { cp: 40, mate: null },
+    secondBestEval: { cp: 30, mate: null },
+    streak: 5,
+    antiStreakActive: true,
+    moverColor: 'w',
+    lang: 'vi',
+  });
+  assert.equal(result.primaryMoveUci, 'd2d4');
+  assert.equal(result.isAntiStreakPrimary, true);
+});
+
+/**
+ * Validates formatAntiStreakButtonText formats button text and titles across active/triggered states in vi and en.
+ */
+test('formatAntiStreakButtonText renders toggle button states correctly', () => {
+  const offVi = formatAntiStreakButtonText(false, 0, 10, 'vi');
+  assert.ok(offVi.buttonText.includes('TẮT'));
+  assert.equal(offVi.isTriggered, false);
+
+  const onVi = formatAntiStreakButtonText(true, 4, 10, 'vi');
+  assert.ok(onVi.buttonText.includes('4/10'));
+  assert.equal(onVi.isTriggered, false);
+
+  const triggeredVi = formatAntiStreakButtonText(true, 10, 10, 'vi');
+  assert.ok(triggeredVi.buttonText.includes('10/10'));
+  assert.equal(triggeredVi.isTriggered, true);
+
+  const triggeredEn = formatAntiStreakButtonText(true, 12, 10, 'en');
+  assert.ok(triggeredEn.buttonText.includes('TRIGGERED'));
+  assert.equal(triggeredEn.isTriggered, true);
+});
+
+/**
+ * Validates formatContinuousAttackButtonText formats button labels and titles in vi and en.
+ */
+test('formatContinuousAttackButtonText renders toggle button states correctly', () => {
+  const offVi = formatContinuousAttackButtonText(false, 'vi');
+  assert.ok(offVi.buttonText.includes('TẮT'));
+  assert.ok(offVi.buttonText.includes('Tấn công thí quân'));
+
+  const onVi = formatContinuousAttackButtonText(true, 'vi');
+  assert.ok(onVi.buttonText.includes('ĐANG BẬT'));
+
+  const offEn = formatContinuousAttackButtonText(false, 'en');
+  assert.ok(offEn.buttonText.includes('OFF'));
+
+  const onEn = formatContinuousAttackButtonText(true, 'en');
+  assert.ok(onEn.buttonText.includes('ACTIVE'));
+});
+
+/**
+ * Validates resolveCompanionPrimaryHint prioritizes king hunt sacrifices when continuous attack mode is active.
+ */
+test('resolveCompanionPrimaryHint elevates king hunt sacrifice moves when continuousAttackActive is true', () => {
+  const kingSacrifice = {
+    id: 'king_hunt_sacrifice',
+    name: { vi: '🔥 Thí Tượng xé toang thành Vua', en: '🔥 Bishop King Hunt Sacrifice' },
+    suggestedMoveUci: 'd3h7',
+    sequence: [
+      { move: 'd3h7', san: 'Bxh7+' },
+      { move: 'g8h7', san: 'Kxh7' },
+    ],
+  };
+
+  // Case 1: Attack mode active and king sacrifice is found -> elevated to primary
+  const resultVi = resolveCompanionPrimaryHint({
+    bestMoveUci: 'e2e4',
+    continuousAttackActive: true,
+    kingSacrifice,
+    lang: 'vi',
+  });
+  assert.equal(resultVi.primaryMoveUci, 'd3h7');
+  assert.equal(resultVi.isAttackSacrificePrimary, true);
+  assert.ok(resultVi.label.includes('Thí quân'));
+  assert.ok(resultVi.label.includes('d3h7'));
+  assert.equal(resultVi.primaryColor, 'rgba(239, 68, 68, 0.98)');
+
+  // Case 2: Attack mode active in English
+  const resultEn = resolveCompanionPrimaryHint({
+    bestMoveUci: 'e2e4',
+    continuousAttackActive: true,
+    kingSacrifice,
+    lang: 'en',
+  });
+  assert.equal(resultEn.primaryMoveUci, 'd3h7');
+  assert.equal(resultEn.isAttackSacrificePrimary, true);
+  assert.ok(resultEn.label.includes('King Hunt Sacrifice'));
+
+  // Case 3: Attack mode active but no sacrifice available -> reports status clearly
+  const resultNone = resolveCompanionPrimaryHint({
+    bestMoveUci: 'e2e4',
+    continuousAttackActive: true,
+    kingSacrifice: null,
+    lang: 'vi',
+  });
+  assert.equal(resultNone.primaryMoveUci, 'e2e4');
+  assert.equal(resultNone.isAttackSacrificePrimary, false);
+  assert.ok(resultNone.label.includes('Chưa có cơ hội thí quân'));
+});
+
+
+
+

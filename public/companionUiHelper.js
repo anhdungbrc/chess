@@ -4,6 +4,7 @@ import {
   detectGreatMove,
   evalToWinPercent,
   isPieceSacrifice,
+  isSafeRunnerUpMove,
 } from './analysisHelper.js';
 import { isSamePosition } from './companionHelper.js';
 import { parseFenBoard } from './reviewHelper.js';
@@ -249,11 +250,12 @@ export function shouldTriggerAnalysis(previousFen, nextFen) {
  *   prev: { fen: string, eval: object, secondBestEval: object | null, bestMoveUci: string | null } | null,
  *   snapshot: { fen: string },
  *   analysis: { eval: object, bestMoveUci: string | null },
- * }} params - Engine analysis of the previous position (analyzed with the correct side to move), the new snapshot, and engine analysis of the new position.
- * @returns {{ classification: string, winLoss: number, accuracy: number, moverColor: 'w' | 'b', playedUci: string, bestMoveUci: string | null, to: string } | null}
+ *   trapSuggestion?: { suggestedMoveUci?: string, nextSetupMove?: string, name?: object, type?: string } | null,
+ * }} params - Engine analysis of the previous position, new snapshot, new position analysis, and optional active trap recommendation.
+ * @returns {{ classification: string, winLoss: number, accuracy: number, moverColor: 'w' | 'b', playedUci: string, bestMoveUci: string | null, to: string, isTrapMove?: boolean } | null}
  *   Grade, or null when the positions are not provably one move apart or the previous analysis used the wrong side to move.
  */
-export function gradeCompanionMove({ prev, snapshot, analysis }) {
+export function gradeCompanionMove({ prev, snapshot, analysis, trapSuggestion = null }) {
   if (!prev || !snapshot?.fen || !analysis) {
     return null;
   }
@@ -306,6 +308,18 @@ export function gradeCompanionMove({ prev, snapshot, analysis }) {
     classification = 'great';
   }
 
+  // Acknowledge intentional trap moves even when engine assesses them as blunders/mistakes
+  const isTrapMove = Boolean(
+    trapSuggestion &&
+      (playedUci === trapSuggestion.suggestedMoveUci || playedUci === trapSuggestion.nextSetupMove)
+  );
+
+  if (isTrapMove) {
+    if (classification === 'blunder' || classification === 'mistake' || classification === 'inaccuracy') {
+      classification = 'risky_trap';
+    }
+  }
+
   return {
     classification,
     winLoss: graded.winLoss,
@@ -314,5 +328,417 @@ export function gradeCompanionMove({ prev, snapshot, analysis }) {
     playedUci,
     bestMoveUci: prev.bestMoveUci,
     to,
+    isTrapMove,
   };
 }
+
+/**
+ * Formats trap recommendation or warning details into a presentation view model.
+ *
+ * @param {{
+ *   id?: string,
+ *   name?: { vi?: string, en?: string },
+ *   type?: 'offensive' | 'defensive' | 'tactical',
+ *   suggestedMoveUci?: string,
+ *   punishAvoidUci?: string,
+ *   punishMoveUci?: string,
+ *   description?: { vi?: string, en?: string },
+ * } | null | undefined} trap - Resolved trap recommendation object.
+ * @param {'vi' | 'en'} [lang='vi'] - Active interface language.
+ * @returns {{
+ *   badgeClass: string,
+ *   badgeText: string,
+ *   titleText: string,
+ *   moveText: string,
+ *   avoidText: string,
+ *   descText: string,
+ *   moveUci: string | null,
+ *   arrowColor: string,
+ * } | null} Presentation model or null when trap is null/empty.
+ */
+export function formatTrapCard(trap, lang = 'vi') {
+  if (!trap || !trap.type) {
+    return null;
+  }
+
+  const isEn = lang === 'en';
+  let badgeClass = 'trap-badge-offensive';
+  let badgeText = isEn ? '🏹 Offensive Trap' : '🏹 Đòn bẫy tấn công';
+  // Red arrow for all trap recommendations and alerts per user specification
+  let arrowColor = 'rgba(239, 68, 68, 0.95)';
+
+  if (trap.isKingSacrifice) {
+    badgeClass = 'trap-badge-extreme trap-badge-king-hunt';
+    badgeText = isEn ? '🔥 King Hunt Sacrifice' : '🔥 Thí quân diệt Vua';
+    arrowColor = 'rgba(239, 68, 68, 0.98)';
+  } else if (trap.isExtremeSacrifice) {
+    badgeClass = 'trap-badge-extreme';
+    const levelStr =
+      trap.sacrificeLevel === 'queen'
+        ? isEn ? 'Queen' : 'Hậu'
+        : trap.sacrificeLevel === 'rook'
+          ? isEn ? 'Rook' : 'Xe'
+          : trap.sacrificeLevel === 'minor'
+            ? isEn ? 'Piece' : 'Quân'
+            : isEn ? 'Pawn' : 'Tốt';
+    badgeText = isEn ? `🔥 Extreme ${levelStr} Sacrifice` : `🔥 Thí ${levelStr} cực mạnh`;
+  } else if (trap.isRisky) {
+    badgeClass = 'trap-badge-risky';
+    badgeText = isEn ? '🏹 Risky Trap' : '🏹 Bẫy mạo hiểm';
+  } else if (trap.type === 'defensive') {
+    badgeClass = 'trap-badge-defensive';
+    badgeText = isEn ? '⚠️ Trap Alert!' : '⚠️ Cảnh báo bẫy!';
+  } else if (trap.type === 'tactical') {
+    badgeClass = 'trap-badge-tactical';
+    badgeText = isEn ? '🎯 Tactical Strike' : '🎯 Đòn chiến thuật';
+  }
+
+  const titleText = trap.name?.[lang] || trap.name?.vi || (isEn ? 'Chess Trap' : 'Đòn bẫy cờ vua');
+  const descText = trap.description?.[lang] || trap.description?.vi || '';
+
+  const suggested = trap.suggestedMoveUci || '';
+  let moveText = '';
+  if (suggested) {
+    if (trap.type === 'defensive') {
+      moveText = isEn ? `Defensive Move: ${suggested}` : `Nước giải vây: ${suggested}`;
+    } else {
+      moveText = isEn ? `Suggested Move: ${suggested}` : `Nước gợi ý: ${suggested}`;
+    }
+  }
+
+  let avoidText = '';
+  if (trap.punishAvoidUci) {
+    avoidText = isEn ? `Avoid Move: ${trap.punishAvoidUci}` : `Tránh đi: ${trap.punishAvoidUci}`;
+  }
+
+  const roadmapSteps = Array.isArray(trap.sequence)
+    ? trap.sequence.map((step, idx) => ({
+        stepNumber: idx + 1,
+        move: step.move,
+        san: step.san || step.move,
+        label: step.label?.[lang] || step.label?.vi || step.label?.en || '',
+        isCurrent: idx === 0,
+        isSacrifice: Boolean(idx === 0 && trap.isExtremeSacrifice),
+      }))
+    : [];
+
+  return {
+    badgeClass,
+    badgeText,
+    titleText,
+    moveText,
+    avoidText,
+    descText,
+    moveUci: suggested || null,
+    arrowColor,
+    isExtremeSacrifice: Boolean(trap.isExtremeSacrifice),
+    isKingSacrifice: Boolean(trap.isKingSacrifice),
+    sacrificeLevel: trap.sacrificeLevel || null,
+    sequence: Array.isArray(trap.sequence) ? trap.sequence : [],
+    roadmapSteps,
+    branches: trap.branches || null,
+  };
+}
+
+/**
+ * Resolves the primary recommendation label, move, and color based on active Trap Mode and Anti-Streak protection.
+ *
+ * @param {{
+ *   bestMoveUci: string | null,
+ *   scoreText?: string,
+ *   trap?: {
+ *     suggestedMoveUci?: string,
+ *     punishAvoidUci?: string,
+ *     name?: { vi?: string, en?: string },
+ *     type?: 'offensive' | 'defensive' | 'tactical',
+ *     sequence?: Array<{ move: string, san?: string, label?: { vi?: string, en?: string } }>,
+ *   } | null,
+ *   trapModeActive?: boolean,
+ *   secondBestMoveUci?: string | null,
+ *   secondBestScoreText?: string,
+ *   bestEval?: { cp?: number | null, mate?: number | null } | null,
+ *   secondBestEval?: { cp?: number | null, mate?: number | null } | null,
+ *   streak?: number,
+ *   threshold?: number,
+ *   antiStreakActive?: boolean,
+ *   moverColor?: 'w' | 'b',
+ *   lang?: 'vi' | 'en',
+ * }} params - Hint resolution parameters.
+ * @returns {{
+ *   label: string,
+ *   primaryMoveUci: string | null,
+ *   primaryColor: string,
+ *   isTrapPrimary: boolean,
+ *   isAntiStreakPrimary?: boolean,
+ *   sequence: Array<{ move: string, san?: string, label?: { vi?: string, en?: string } }>,
+ * }} Resolved primary hint descriptor.
+ */
+export function resolveCompanionPrimaryHint({
+  bestMoveUci,
+  scoreText = '',
+  trap = null,
+  trapModeActive = false,
+  secondBestMoveUci = null,
+  secondBestScoreText = '',
+  bestEval = null,
+  secondBestEval = null,
+  streak = 0,
+  threshold = 5,
+  antiStreakActive = false,
+  continuousAttackActive = false,
+  kingSacrifice = null,
+  moverColor = 'w',
+  lang = 'vi',
+}) {
+  const isEn = lang === 'en';
+  const cleanScore = scoreText ? ` (${scoreText})` : '';
+
+  // 1. Continuous King-Sacrifice Attack Mode takes priority when active and a sacrificial attack exists
+  if (continuousAttackActive && kingSacrifice?.suggestedMoveUci) {
+    const attackName =
+      kingSacrifice.name?.[lang] || kingSacrifice.name?.vi || (isEn ? 'King Hunt Attack' : 'Tấn công vào Vua');
+    const primaryMoveUci = kingSacrifice.suggestedMoveUci;
+    const label = isEn
+      ? `🔥 King Hunt Sacrifice: ${primaryMoveUci} (${attackName})`
+      : `🔥 Thí quân diệt Vua: ${primaryMoveUci} (${attackName})`;
+
+    return {
+      label,
+      primaryMoveUci,
+      primaryColor: 'rgba(239, 68, 68, 0.98)',
+      isAttackSacrificePrimary: true,
+      isTrapPrimary: false,
+      isAntiStreakPrimary: false,
+      sequence: Array.isArray(kingSacrifice.sequence) ? kingSacrifice.sequence : [],
+    };
+  }
+
+  // 2. Anti-Streak Protection: When player has played consecutive best moves >= threshold, suggest safe 2nd move
+  if (antiStreakActive && streak >= threshold) {
+    if (secondBestMoveUci) {
+      const isSafe = isSafeRunnerUpMove({ bestEval, secondBestEval, moverColor });
+      if (isSafe) {
+        const cleanSecondScore = secondBestScoreText ? ` (${secondBestScoreText})` : '';
+        const label = isEn
+          ? `🛡️ Anti-Streak (${streak} in a row): Recommended 2nd move ${secondBestMoveUci}${cleanSecondScore}`
+          : `🛡️ Chống chuỗi tối ưu (${streak} nước liên tiếp): Đề xuất nước thứ 2 ${secondBestMoveUci}${cleanSecondScore}`;
+        return {
+          label,
+          primaryMoveUci: secondBestMoveUci,
+          primaryColor: 'rgba(245, 158, 11, 0.95)',
+          isTrapPrimary: false,
+          isAntiStreakPrimary: true,
+          sequence: [],
+        };
+      }
+      // If 2nd move is too risky or blunder, fall back to best move with clear warning
+      const moveStr = bestMoveUci || '-';
+      const label = isEn
+        ? `⚠️ Streak ${streak}! 2nd move is too risky, keeping best move ${moveStr}${cleanScore}`
+        : `⚠️ Chuỗi ${streak} nước tối ưu! Nước thứ 2 rủi ro cao, giữ nước tối ưu ${moveStr}${cleanScore}`;
+      return {
+        label,
+        primaryMoveUci: bestMoveUci,
+        primaryColor: 'rgba(129, 182, 76, 0.9)',
+        isTrapPrimary: false,
+        isAntiStreakPrimary: false,
+        sequence: Array.isArray(trap?.sequence) ? trap.sequence : [],
+      };
+    }
+  }
+
+  // 2. When Trap Mode is enabled and a trap is detected, elevate the trap to primary recommendation
+  if (trapModeActive && trap?.suggestedMoveUci) {
+    const trapName = trap.name?.[lang] || trap.name?.vi || (isEn ? 'Trap' : 'Đòn bẫy');
+    const primaryMoveUci = trap.suggestedMoveUci;
+    const isDefensive = trap.type === 'defensive';
+    // Red arrow for all trap recommendations
+    const primaryColor = 'rgba(239, 68, 68, 0.95)';
+
+    let label = '';
+    if (isDefensive) {
+      const avoid = trap.punishAvoidUci
+        ? isEn
+          ? `Avoid ${trap.punishAvoidUci}, `
+          : `Tránh ${trap.punishAvoidUci}, `
+        : '';
+      label = isEn
+        ? `⚠️ Trap Alert: ${avoid}play ${primaryMoveUci} (${trapName})`
+        : `⚠️ Cảnh báo bẫy: ${avoid}hãy đi ${primaryMoveUci} (${trapName})`;
+    } else if (trap.isExtremeSacrifice) {
+      label = isEn
+        ? `🔥 Extreme Sacrifice: ${primaryMoveUci} (${trapName})`
+        : `🔥 Thí quân cực mạnh: ${primaryMoveUci} (${trapName})`;
+    } else if (trap.isRisky) {
+      label = isEn
+        ? `🏹 Risky Trap: ${primaryMoveUci} (${trapName})`
+        : `🏹 Bẫy mạo hiểm: ${primaryMoveUci} (${trapName})`;
+    } else {
+      label = isEn
+        ? `🏹 Trap Move: ${primaryMoveUci} (${trapName})`
+        : `🏹 Nước giăng bẫy: ${primaryMoveUci} (${trapName})`;
+    }
+
+    return {
+      label,
+      primaryMoveUci,
+      primaryColor,
+      isTrapPrimary: true,
+      isAntiStreakPrimary: false,
+      sequence: Array.isArray(trap.sequence) ? trap.sequence : [],
+    };
+  }
+
+  // When Trap Mode is enabled but no trap is available in this position, clarify status
+  if (trapModeActive && !trap) {
+    const moveStr = bestMoveUci || '-';
+    const label = isEn
+      ? `Best Move: ${moveStr}${cleanScore} • No trap in this position`
+      : `Nước tối ưu: ${moveStr}${cleanScore} • Chưa có đòn bẫy ở thế cờ này`;
+
+    return {
+      label,
+      primaryMoveUci: bestMoveUci,
+      primaryColor: 'rgba(129, 182, 76, 0.9)',
+      isTrapPrimary: false,
+      isAntiStreakPrimary: false,
+      sequence: [],
+    };
+  }
+
+  // When Continuous King-Sacrifice Attack Mode is enabled but no sacrifice is available, clarify status
+  if (continuousAttackActive && !kingSacrifice) {
+    const moveStr = bestMoveUci || '-';
+    const label = isEn
+      ? `Best Move: ${moveStr}${cleanScore} • No king sacrifice available`
+      : `Nước tối ưu: ${moveStr}${cleanScore} • Chưa có cơ hội thí quân vào Vua`;
+
+    return {
+      label,
+      primaryMoveUci: bestMoveUci,
+      primaryColor: 'rgba(129, 182, 76, 0.9)',
+      isAttackSacrificePrimary: false,
+      isTrapPrimary: false,
+      isAntiStreakPrimary: false,
+      sequence: [],
+    };
+  }
+
+  // Default mode: standard Stockfish best move is primary
+  const moveStr = bestMoveUci || '';
+  const label = isEn
+    ? `Best move: ${moveStr}${cleanScore}`
+    : `Nước tối ưu: ${moveStr}${cleanScore}`;
+
+  return {
+    label,
+    primaryMoveUci: bestMoveUci,
+    primaryColor: 'rgba(129, 182, 76, 0.9)',
+    isAttackSacrificePrimary: false,
+    isTrapPrimary: false,
+    isAntiStreakPrimary: false,
+    sequence: Array.isArray(trap?.sequence) ? trap.sequence : [],
+  };
+}
+
+/**
+ * Formats button text and tooltip for the Continuous King-Sacrifice Attack Mode toggle.
+ *
+ * @param {boolean} isActive - Whether continuous sacrificial attack mode is currently active.
+ * @param {'vi' | 'en'} [lang='vi'] - Active interface language.
+ * @returns {{ buttonText: string, titleText: string }} Presentation labels.
+ */
+export function formatContinuousAttackButtonText(isActive, lang = 'vi') {
+  const isEn = lang === 'en';
+  if (isActive) {
+    return {
+      buttonText: isEn ? '🔥 King Hunt Sacrifice: ACTIVE' : '🔥 Tấn công thí quân: ĐANG BẬT',
+      titleText: isEn
+        ? 'Continuous sacrificial king hunt mode is ACTIVE. Click to disable.'
+        : 'Chế độ bất chấp thí quân xé toang đường vào Vua đang BẬT. Bấm để tắt.',
+    };
+  }
+  return {
+    buttonText: isEn ? '🔥 King Hunt Sacrifice: OFF' : '🔥 Tấn công thí quân: TẮT',
+    titleText: isEn
+      ? 'Click to enable continuous sacrificial king hunt mode.'
+      : 'Bấm để bật chế độ bất chấp thí quân tấn công cực mạnh vào Vua đối phương.',
+  };
+}
+
+/**
+ * Formats user-facing label and title for the Anti-Streak toggle button.
+ *
+ * @param {boolean} active - Whether anti-streak protection is enabled.
+ * @param {number} streak - Current consecutive best moves streak.
+ * @param {number} threshold - Threshold to trigger anti-streak mitigation.
+ * @param {'vi' | 'en'} [lang='vi'] - Active interface language.
+ * @returns {{ buttonText: string, titleText: string, isTriggered: boolean }} Button presentation model.
+ */
+export function formatAntiStreakButtonText(active, streak, threshold, lang = 'vi') {
+  const isEn = lang === 'en';
+  const isTriggered = active && streak >= threshold;
+  if (!active) {
+    return {
+      buttonText: isEn ? '🛡️ Anti-Streak: OFF' : '🛡️ Chống chuỗi tối ưu: TẮT',
+      titleText: isEn
+        ? 'Enable protection against continuous best moves'
+        : 'Bật chế độ chống các nước đi tốt nhất liên tục',
+      isTriggered: false,
+    };
+  }
+  const countStr = `${streak}/${threshold}`;
+  const statusStr = isTriggered
+    ? isEn ? `🔥 TRIGGERED (${countStr})` : `🔥 ĐANG KÍCH HOẠT (${countStr})`
+    : isEn ? `ON (${countStr})` : `BẬT (${countStr})`;
+
+  return {
+    buttonText: `🛡️ ${isEn ? 'Anti-Streak' : 'Chống chuỗi'}: ${statusStr}`,
+    titleText: isEn
+      ? `Protection active (${streak}/${threshold} consecutive best moves)`
+      : `Đang bảo vệ (${streak}/${threshold} nước tối ưu liên tiếp)`,
+    isTriggered,
+  };
+}
+
+/**
+ * Formats proactive trap candidates into interactive UI view model pills.
+ *
+ * @param {Array<{ trap: object, nextSetupMove: string, remainingSteps: number }> | null | undefined} candidates - Candidate traps from finder.
+ * @param {string} [lang='vi'] - Active UI language ('vi' | 'en').
+ * @returns {Array<{
+ *   id: string,
+ *   name: string,
+ *   nextMoveText: string,
+ *   setupMoveUci: string,
+ *   stepsText: string,
+ *   remainingSteps: number,
+ *   trap: object,
+ * }>} Formatted pill view model array.
+ */
+export function formatProactiveTrapList(candidates, lang = 'vi') {
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    return [];
+  }
+
+  const isVi = lang === 'vi';
+
+  // Map candidates to interactive pill items
+  return candidates.map((item) => {
+    const name = item.trap?.name?.[lang] || item.trap?.name?.vi || item.trap?.name?.en || item.trap?.id || '';
+    const steps = item.remainingSteps || 1;
+    const stepsText = isVi ? `${steps} nước` : `${steps} plies`;
+    const nextMoveText = isVi ? `Đi ${item.nextSetupMove} (${stepsText})` : `Play ${item.nextSetupMove} (${stepsText})`;
+
+    return {
+      id: item.trap?.id || '',
+      name,
+      setupMoveUci: item.nextSetupMove || '',
+      nextMoveText,
+      stepsText,
+      remainingSteps: steps,
+      trap: item.trap,
+    };
+  });
+}
+

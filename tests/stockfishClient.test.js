@@ -211,6 +211,8 @@ async function testAnalyzePositionMultiPv() {
   const result = await analyzer.analyzePosition(START_FEN, { depth: 10, multiPv: 2 });
   assert.deepEqual(result.eval, { cp: 80, mate: null });
   assert.deepEqual(result.secondBestEval, { cp: 20, mate: null });
+  assert.equal(result.bestMoveUci, 'e2e4');
+  assert.equal(result.secondBestMoveUci, 'd2d4');
   assert.ok(commands.includes('setoption name MultiPV value 2'));
   analyzer.dispose();
 
@@ -218,6 +220,7 @@ async function testAnalyzePositionMultiPv() {
   const plainAnalyzer = createStockfishAnalyzer({ scriptUrl: '/sf.js', createWorker: () => plain.worker });
   const plainResult = await plainAnalyzer.analyzePosition(START_FEN, { depth: 10 });
   assert.equal(plainResult.secondBestEval, null);
+  assert.equal(plainResult.secondBestMoveUci, null);
   assert.ok(!plain.commands.some((c) => c.startsWith('setoption')));
   plainAnalyzer.dispose();
 }
