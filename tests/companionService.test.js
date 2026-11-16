@@ -93,3 +93,36 @@ test('companionService reset clears stored state', () => {
   assert.equal(service.getLatestSnapshot(), null);
 });
 
+/**
+ * Validates setting and retrieving auto-move commands and broadcasting to subscribers.
+ */
+test('companionService manages auto-move commands and notifies subscribers with event name', () => {
+  const service = createCompanionService();
+  assert.equal(service.getLatestAutoMoveCommand(), null);
+
+  const receivedEvents = [];
+  service.subscribe((payload, eventName) => {
+    receivedEvents.push({ payload, eventName });
+  });
+
+  const command = {
+    moveUci: 'e2e4',
+    fen: SAMPLE_SNAPSHOT_1.fen,
+    delayMs: 500,
+    enabled: true,
+    timestamp: 1731479810000,
+  };
+
+  const stored = service.setAutoMoveCommand(command);
+  assert.deepEqual(stored, command);
+  assert.deepEqual(service.getLatestAutoMoveCommand(), command);
+
+  // Subscriber received auto-move event
+  assert.equal(receivedEvents.length, 1);
+  assert.deepEqual(receivedEvents[0], { payload: command, eventName: 'companion:auto-move' });
+
+  // Clearing command
+  service.clearAutoMoveCommand();
+  assert.equal(service.getLatestAutoMoveCommand(), null);
+});
+

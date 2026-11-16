@@ -14,6 +14,7 @@ import {
 } from '../service/gameService.js';
 import { createCompanionService } from '../service/companionService.js';
 import {
+  validateAutoMoveCommandInput,
   validateCompanionSyncInput,
   validateCreateGameInput,
   validateDrawActionInput,
@@ -261,8 +262,8 @@ function openCompanionSseStream(req, res, companionService, activeCleanups) {
     writeSnapshot(initial, 'companion:snapshot');
   }
 
-  const unsubscribe = companionService.subscribe((snapshot) => {
-    writeSnapshot(snapshot, 'companion:update');
+  const unsubscribe = companionService.subscribe((payload, eventName = 'companion:update') => {
+    writeSnapshot(payload, eventName);
   });
 
   const heartbeat = setInterval(() => {
@@ -342,6 +343,43 @@ export function createHttpServer({
           const input = validateCompanionSyncInput(body);
           const saved = companionService.updateSnapshot(input);
           sendJson(res, 200, { ok: true, timestamp: saved.timestamp }, CORS_HEADERS);
+          return;
+        }
+      }
+
+      if (pathname === '/api/companion/auto-move') {
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204, CORS_HEADERS);
+          res.end();
+          return;
+        }
+        if (req.method === 'POST') {
+          const body = await readJsonBody(req);
+          const input = validateAutoMoveCommandInput(body);
+          const saved = companionService.setAutoMoveCommand(input);
+          sendJson(res, 200, { ok: true, command: saved }, CORS_HEADERS);
+          return;
+        }
+      }
+
+      if (pathname === '/api/companion/command') {
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204, CORS_HEADERS);
+          res.end();
+          return;
+        }
+        if (req.method === 'GET') {
+          sendJson(
+            res,
+            200,
+            { command: companionService.getLatestAutoMoveCommand() },
+            CORS_HEADERS
+          );
+          return;
+        }
+        if (req.method === 'DELETE') {
+          companionService.clearAutoMoveCommand();
+          sendJson(res, 200, { ok: true }, CORS_HEADERS);
           return;
         }
       }

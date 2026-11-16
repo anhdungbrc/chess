@@ -188,3 +188,65 @@ test('GET /api/companion/events streams real-time updates via SSE', async () => 
   }
 });
 
+/**
+ * Validates POST and GET for auto-move commands with CORS and SSE broadcast.
+ */
+test('POST /api/companion/auto-move and GET /api/companion/command handle auto-play lifecycle', async () => {
+  const { server, baseUrl, companionService } = await startTestServer();
+  try {
+    // 1. Initial GET /api/companion/command returns null
+    const resInitial = await fetch(`${baseUrl}/api/companion/command`);
+    assert.equal(resInitial.status, 200);
+    assert.equal(resInitial.headers.get('access-control-allow-origin'), '*');
+    const dataInitial = await resInitial.json();
+    assert.equal(dataInitial.command, null);
+
+    // 2. Preflight OPTIONS /api/companion/auto-move
+    const resOptions = await fetch(`${baseUrl}/api/companion/auto-move`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://www.chess.com',
+        'Access-Control-Request-Method': 'POST',
+      },
+    });
+    assert.equal(resOptions.status, 204);
+    assert.equal(resOptions.headers.get('access-control-allow-origin'), '*');
+
+    // 3. POST valid auto-move command
+    const resPost = await fetch(`${baseUrl}/api/companion/auto-move`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'https://www.chess.com',
+      },
+      body: JSON.stringify({
+        moveUci: 'e2e4',
+        fen: START_FEN,
+        delayMs: 750,
+      }),
+    });
+    assert.equal(resPost.status, 200);
+    assert.equal(resPost.headers.get('access-control-allow-origin'), '*');
+    const dataPost = await resPost.json();
+    assert.equal(dataPost.ok, true);
+    assert.equal(dataPost.command?.moveUci, 'e2e4');
+    assert.equal(dataPost.command?.delayMs, 750);
+
+    // 4. GET /api/companion/command returns stored command
+    const resGet = await fetch(`${baseUrl}/api/companion/command`);
+    assert.equal(resGet.status, 200);
+    const dataGet = await resGet.json();
+    assert.equal(dataGet.command?.moveUci, 'e2e4');
+
+    // 5. POST invalid auto-move command returns 400
+    const resBad = await fetch(`${baseUrl}/api/companion/auto-move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ moveUci: 'bad-move' }),
+    });
+    assert.equal(resBad.status, 400);
+  } finally {
+    server.close();
+  }
+});
+

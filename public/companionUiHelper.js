@@ -487,11 +487,30 @@ export function resolveCompanionPrimaryHint({
   antiStreakActive = false,
   continuousAttackActive = false,
   kingSacrifice = null,
+  selectedMoveUci = null,
   moverColor = 'w',
   lang = 'vi',
 }) {
   const isEn = lang === 'en';
   const cleanScore = scoreText ? ` (${scoreText})` : '';
+
+  // 0. User-selected move from trap card or proactive pill takes absolute precedence
+  if (selectedMoveUci) {
+    const trapName = trap?.name?.[lang] || trap?.name?.vi || (isEn ? 'Selected Move' : 'Nước đã chọn');
+    const label = isEn
+      ? `🏹 Selected Trap Move: ${selectedMoveUci} (${trapName})`
+      : `🏹 Nước giăng bẫy đã chọn: ${selectedMoveUci} (${trapName})`;
+
+    return {
+      label,
+      primaryMoveUci: selectedMoveUci,
+      primaryColor: 'rgba(239, 68, 68, 0.95)',
+      isAttackSacrificePrimary: false,
+      isTrapPrimary: true,
+      isAntiStreakPrimary: false,
+      sequence: Array.isArray(trap?.sequence) ? trap.sequence : [],
+    };
+  }
 
   // 1. Continuous King-Sacrifice Attack Mode takes priority when active and a sacrificial attack exists
   if (continuousAttackActive && kingSacrifice?.suggestedMoveUci) {
@@ -740,5 +759,32 @@ export function formatProactiveTrapList(candidates, lang = 'vi') {
       trap: item.trap,
     };
   });
+}
+
+/**
+ * Formats user-facing label and title for the Companion Auto-move toggle button.
+ *
+ * @param {boolean} enabled - Whether auto-move is currently active.
+ * @param {number | string} [delay='3-10s'] - Configured move delay in milliseconds or formatted range label.
+ * @param {'vi' | 'en'} [lang='vi'] - Active interface language.
+ * @returns {{ buttonText: string, titleText: string }} Presentation labels.
+ */
+export function formatAutoMoveButtonText(enabled, delay = '3-10s', lang = 'vi') {
+  const isEn = lang === 'en';
+  if (enabled) {
+    const delayStr = typeof delay === 'number' ? ` (~${delay}ms)` : ` (${delay})`;
+    return {
+      buttonText: isEn ? `⚡ Auto-move: ON${delayStr}` : `⚡ Tự động đánh: BẬT${delayStr}`,
+      titleText: isEn
+        ? 'Auto-move mode is ACTIVE. Click to disable.'
+        : 'Chế độ tự động đánh theo gợi ý đang BẬT. Bấm để tắt.',
+    };
+  }
+  return {
+    buttonText: isEn ? '⚡ Auto-move: OFF' : '⚡ Tự động đánh: TẮT',
+    titleText: isEn
+      ? 'Click to enable auto-move mode on Chess.com.'
+      : 'Bấm để bật chế độ tự động đánh theo gợi ý trên Chess.com.',
+  };
 }
 

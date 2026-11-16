@@ -17,9 +17,11 @@ import {
 import {
   generateBookmarklet,
   generateRelayScript,
+  getRandomAutoMoveDelayMs,
 } from './companionHelper.js';
 import {
   formatAntiStreakButtonText,
+  formatAutoMoveButtonText,
   formatBestMoveHint,
   formatCompanionStatus,
   formatContinuousAttackButtonText,
@@ -180,6 +182,11 @@ const state = {
   companionBestMoveStreak: 0,
   companionActiveComboChain: null,
   companionComboStep: 1,
+  companionAutoMoveActive: false,
+  companionAutoMoveDelayMs: 650,
+  companionLastAutoMovedFen: null,
+  companionSelectedMoveUci: null,
+  companionActiveTargetMoveUci: null,
 };
 
 const elements = {
@@ -245,6 +252,7 @@ const elements = {
   companionTrapToggleBtn: document.getElementById('companion-trap-toggle-btn'),
   companionAttackToggleBtn: document.getElementById('companion-attack-toggle-btn'),
   companionAntiStreakToggleBtn: document.getElementById('companion-anti-streak-toggle-btn'),
+  companionAutoMoveToggleBtn: document.getElementById('companion-auto-move-toggle-btn'),
   companionTrapBadge: document.getElementById('companion-trap-badge'),
   companionTrapTitle: document.getElementById('companion-trap-title'),
   companionTrapMove: document.getElementById('companion-trap-move'),
@@ -564,16 +572,16 @@ function renderCompanionBoard(boardGrid, lastMove, grade = null) {
 }
 
 /**
- * Draws the best move recommendation arrow and optional trap suggestion arrow onto the board overlay.
+ * Draws the active guidance move arrow on the companion board overlay.
+ * Guarantees that only one clear guidance arrow is drawn, matching the auto-move target.
  *
- * @param {string | null} bestMoveUci - UCI coordinate move string (e.g. 'e7e5') or null.
- * @param {string | null} [trapMoveUci=null] - Optional trap coordinate move string (e.g. 'f3e5').
- * @param {string | null} [trapArrowColor=null] - Optional custom CSS color for the trap arrow.
+ * @param {string | null} targetMoveUci - UCI coordinate move string (e.g. 'e7e5') or null.
+ * @param {string | null} [arrowColor=null] - Optional custom CSS color for the arrow.
  * @returns {void}
  */
-function renderCompanionBestMoveArrow(bestMoveUci, trapMoveUci = null, trapArrowColor = null) {
+function renderCompanionBestMoveArrow(targetMoveUci, arrowColor = null) {
   elements.boardArrows.innerHTML = '';
-  if (!bestMoveUci && !trapMoveUci) {
+  if (!targetMoveUci) {
     return;
   }
 
@@ -589,35 +597,22 @@ function renderCompanionBestMoveArrow(bestMoveUci, trapMoveUci = null, trapArrow
     };
   };
 
-  const isTrapOnly = Boolean(trapMoveUci && (!bestMoveUci || bestMoveUci === trapMoveUci));
-  const effectiveTrapColor = trapArrowColor || 'rgba(239, 68, 68, 0.95)';
-
-  if (bestMoveUci) {
-    const squares = uciToMoveSquares(bestMoveUci);
-    if (squares?.from && squares?.to) {
-      const isTrapPrimary = isTrapOnly || state.companionTrapModeActive;
-      const arrowId = isTrapPrimary ? 'chess-trap-arrow-head' : 'chess-best-arrow-head';
-      const arrowColor = isTrapPrimary ? effectiveTrapColor : 'rgba(129, 182, 76, 0.9)';
-      appendBoardArrow(
-        arrowId,
-        arrowColor,
-        squareCenter(squares.from),
-        squareCenter(squares.to)
-      );
-    }
-  }
-
-  // Draw distinct trap arrow if a trap move exists and does not duplicate the best move arrow
-  if (trapMoveUci && trapMoveUci !== bestMoveUci) {
-    const trapSquares = uciToMoveSquares(trapMoveUci);
-    if (trapSquares?.from && trapSquares?.to) {
-      appendBoardArrow(
-        'chess-trap-arrow-head',
-        effectiveTrapColor,
-        squareCenter(trapSquares.from),
-        squareCenter(trapSquares.to)
-      );
-    }
+  const squares = uciToMoveSquares(targetMoveUci);
+  if (squares?.from && squares?.to) {
+    const isTrapOrSacrifice =
+      Boolean(arrowColor?.includes('239, 68, 68')) ||
+      Boolean(arrowColor?.includes('#ef4444')) ||
+      Boolean(state.companionSelectedMoveUci);
+    const arrowId = isTrapOrSacrifice ? 'chess-trap-arrow-head' : 'chess-best-arrow-head';
+    const effectiveColor =
+      arrowColor ||
+      (isTrapOrSacrifice ? 'rgba(239, 68, 68, 0.95)' : 'rgba(129, 182, 76, 0.9)');
+    appendBoardArrow(
+      arrowId,
+      effectiveColor,
+      squareCenter(squares.from),
+      squareCenter(squares.to)
+    );
   }
 }
 
@@ -711,7 +706,16 @@ function renderCompanionTrapSuggestion(trap) {
       moveBtn.innerHTML = `<span class="trap-arrow-icon">➔</span> <span>${card.moveText}</span>`;
       moveBtn.addEventListener('click', () => {
         if (card.moveUci) {
-          renderCompanionBestMoveArrow(card.moveUci, card.moveUci, 'rgba(239, 68, 68, 0.95)');
+          state.companionSelectedMoveUci = card.moveUci;
+          state.companionActiveTargetMoveUci = card.moveUci;
+          renderCompanionBestMoveArrow(card.moveUci, 'rgba(239, 68, 68, 0.95)');
+          if (elements.companionBestmoveLabel) {
+            elements.companionBestmoveLabel.textContent = `🏹 ${card.moveText}`;
+            elements.companionBestmoveLabel.style.color = '#ef4444';
+          }
+          if (state.companionSnapshot?.fen) {
+            dispatchCompanionAutoMove(card.moveUci, state.companionSnapshot.fen);
+          }
         }
       });
       elements.companionTrapMove.appendChild(moveBtn);
@@ -829,8 +833,17 @@ function renderCompanionProactiveTraps(candidates) {
       allPills.forEach((p) => p.classList.remove('is-active'));
       pill.classList.add('is-active');
 
+      state.companionSelectedMoveUci = item.setupMoveUci;
+      state.companionActiveTargetMoveUci = item.setupMoveUci;
       renderCompanionTrapSuggestion(item.trap);
-      renderCompanionBestMoveArrow(item.setupMoveUci, item.setupMoveUci, 'rgba(239, 68, 68, 0.95)');
+      renderCompanionBestMoveArrow(item.setupMoveUci, 'rgba(239, 68, 68, 0.95)');
+      if (elements.companionBestmoveLabel) {
+        elements.companionBestmoveLabel.textContent = `🏹 ${item.nextMoveText} (${item.name})`;
+        elements.companionBestmoveLabel.style.color = '#ef4444';
+      }
+      if (state.companionSnapshot?.fen) {
+        dispatchCompanionAutoMove(item.setupMoveUci, state.companionSnapshot.fen);
+      }
     };
 
     pill.addEventListener('click', selectProactiveTrap);
@@ -912,10 +925,9 @@ function toggleCompanionTrapMode() {
             : '#81b64c';
       }
 
-      const trapCard = formatTrapCard(trap, lang);
+      state.companionActiveTargetMoveUci = primaryHint.primaryMoveUci;
       renderCompanionBestMoveArrow(
         primaryHint.primaryMoveUci,
-        trapCard?.moveUci,
         primaryHint.primaryColor
       );
     }
@@ -991,10 +1003,9 @@ function toggleCompanionContinuousAttackMode() {
             : '#81b64c';
       }
 
-      const trapCard = formatTrapCard(trap, lang);
+      state.companionActiveTargetMoveUci = primaryHint.primaryMoveUci;
       renderCompanionBestMoveArrow(
         primaryHint.primaryMoveUci,
-        trapCard?.moveUci,
         primaryHint.primaryColor
       );
     }
@@ -1071,13 +1082,92 @@ function toggleCompanionAntiStreakMode() {
           : '#81b64c';
     }
 
-    const trapCard = formatTrapCard(trap, lang);
+    state.companionActiveTargetMoveUci = primaryHint.primaryMoveUci;
     renderCompanionBestMoveArrow(
       primaryHint.primaryMoveUci,
-      trapCard?.moveUci,
       primaryHint.primaryColor
     );
   }
+}
+
+/**
+ * Synchronizes the auto-move toggle button label, styling, and tooltip with active state.
+ *
+ * @returns {void}
+ */
+function updateAutoMoveToggleUI() {
+  if (!elements.companionAutoMoveToggleBtn) {
+    return;
+  }
+  const lang = getLanguage();
+  const textInfo = formatAutoMoveButtonText(
+    state.companionAutoMoveActive,
+    '3-10s',
+    lang
+  );
+  elements.companionAutoMoveToggleBtn.textContent = textInfo.buttonText;
+  elements.companionAutoMoveToggleBtn.title = textInfo.titleText;
+  elements.companionAutoMoveToggleBtn.setAttribute(
+    'aria-pressed',
+    String(state.companionAutoMoveActive)
+  );
+  elements.companionAutoMoveToggleBtn.classList.toggle('is-active', state.companionAutoMoveActive);
+}
+
+/**
+ * Toggles companion auto-move mode on/off and persists preference to localStorage.
+ *
+ * @returns {void}
+ */
+function toggleCompanionAutoMove() {
+  state.companionAutoMoveActive = !state.companionAutoMoveActive;
+  try {
+    localStorage.setItem('chess_companion_auto_move', String(state.companionAutoMoveActive));
+  } catch (err) {
+    console.debug('Failed to save auto-move state to localStorage:', err);
+  }
+  updateAutoMoveToggleUI();
+}
+
+/**
+ * Dispatches an auto-move command to the companion server for execution on Chess.com.
+ * Guarantees move strictly matches the active guidance arrow and player turn with a human-like 3-10s delay.
+ *
+ * @param {string} moveUci - Target move in UCI coordinate format (e.g. 'e2e4').
+ * @param {string} fen - Current board FEN position.
+ * @returns {void}
+ */
+function dispatchCompanionAutoMove(moveUci, fen) {
+  if (!state.companionAutoMoveActive || !moveUci || !fen) {
+    return;
+  }
+  // Determine player color strictly from companion perspective
+  const playerColor = state.companionSnapshot?.orientation === 'black' ? 'b' : 'w';
+  const fenTurn = fen.trim().split(/\s+/)[1];
+  // Strict human turn enforcement: never dispatch or move when it is opponent's turn
+  if (fenTurn !== playerColor) {
+    return;
+  }
+  if (state.companionLastAutoMovedFen === fen) {
+    return;
+  }
+  state.companionLastAutoMovedFen = fen;
+
+  // Randomized human-like delay uniformly distributed between 3s and 10s
+  const randomizedDelayMs = getRandomAutoMoveDelayMs(3000, 10000);
+
+  fetch('/api/companion/auto-move', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      moveUci,
+      fen,
+      delayMs: randomizedDelayMs,
+      enabled: true,
+    }),
+  }).catch((err) => {
+    console.debug('Failed to dispatch auto-move command to companion server:', err);
+  });
 }
 
 /**
@@ -1157,6 +1247,12 @@ async function handleCompanionSnapshot(snapshot) {
   const shouldAnalyze = !hasSamePlacement(previousSnapshotFen, snapshot.fen);
   state.companionSnapshot = snapshot;
 
+  if (shouldAnalyze) {
+    state.companionSelectedMoveUci = null;
+    state.companionActiveTargetMoveUci = null;
+    elements.boardArrows.innerHTML = '';
+  }
+
   // A fresh start position means a new game on Chess.com, so drop the previous game's grades.
   if (snapshot.fen.startsWith('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR')) {
     state.companionPrevAnalysis = null;
@@ -1169,6 +1265,7 @@ async function handleCompanionSnapshot(snapshot) {
     state.companionKingSacrificeAttack = null;
     state.companionActiveComboChain = null;
     state.companionComboStep = 1;
+    state.companionLastAutoMovedFen = null;
     renderCompanionTrapSuggestion(null);
     renderCompanionProactiveTraps(null);
   }
@@ -1389,7 +1486,8 @@ async function handleCompanionSnapshot(snapshot) {
         antiStreakActive: state.companionAntiStreakActive,
         continuousAttackActive: state.companionContinuousAttackActive,
         kingSacrifice,
-        moverColor: snapshot.turn,
+        selectedMoveUci: state.companionSelectedMoveUci,
+        moverColor: analysisFen.trim().split(/\s+/)[1],
         lang,
       });
 
@@ -1405,12 +1503,15 @@ async function handleCompanionSnapshot(snapshot) {
         elements.companionEvalText.textContent = `${lang === 'en' ? 'Depth' : 'Độ sâu'}: ${result.depth}`;
       }
 
+      state.companionActiveTargetMoveUci = primaryHint.primaryMoveUci;
       renderCompanionEval(result.eval, snapshot.turn);
       renderCompanionBestMoveArrow(
         primaryHint.primaryMoveUci,
-        trapCard?.moveUci,
         primaryHint.primaryColor
       );
+
+      // Auto-move execution: dispatch command matching the active guidance arrow
+      dispatchCompanionAutoMove(primaryHint.primaryMoveUci, analysisFen);
     }
   } catch (err) {
     if (err?.name !== 'AbortError') {
@@ -2759,6 +2860,7 @@ function applyLanguage(lang) {
   updateTrapModeToggleUI();
   updateContinuousAttackToggleUI();
   updateAntiStreakToggleUI();
+  updateAutoMoveToggleUI();
 
   const fsMeta = resolveFullscreenButtonMetadata(state.isFullscreen, lang);
   if (elements.boardFullscreenBtn) {
@@ -4439,15 +4541,18 @@ async function bootstrapApp() {
     state.companionContinuousAttackActive = localStorage.getItem('chess_companion_attack_mode') === 'true';
     const antiStreakStored = localStorage.getItem('chess_companion_anti_streak');
     state.companionAntiStreakActive = antiStreakStored === null ? true : antiStreakStored === 'true';
+    state.companionAutoMoveActive = localStorage.getItem('chess_companion_auto_move') === 'true';
   } catch {
     state.companionTrapModeActive = false;
     state.companionContinuousAttackActive = false;
     state.companionAntiStreakActive = true;
+    state.companionAutoMoveActive = false;
   }
   applyLanguage(getLanguage());
   updateTrapModeToggleUI();
   updateContinuousAttackToggleUI();
   updateAntiStreakToggleUI();
+  updateAutoMoveToggleUI();
   setMobileNavCollapsed(true);
   setupMobileChatFabDrag();
   try {
@@ -4561,6 +4666,7 @@ elements.companionCopyScriptBtn?.addEventListener('click', copyCompanionRelayScr
 elements.companionTrapToggleBtn?.addEventListener('click', toggleCompanionTrapMode);
 elements.companionAttackToggleBtn?.addEventListener('click', toggleCompanionContinuousAttackMode);
 elements.companionAntiStreakToggleBtn?.addEventListener('click', toggleCompanionAntiStreakMode);
+elements.companionAutoMoveToggleBtn?.addEventListener('click', toggleCompanionAutoMove);
 elements.subtabMovesBtn.addEventListener('click', () => setPlaySubtab('moves'));
 elements.subtabChatBtn.addEventListener('click', () => setPlaySubtab('chat'));
 elements.chatForm.addEventListener('submit', (event) => {

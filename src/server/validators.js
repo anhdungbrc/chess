@@ -3,6 +3,7 @@ import { findTimeControl } from '../domain/timeControls.js';
 import {
   CompanionValidationError,
   parseCompanionSnapshot,
+  parseAutoMoveCommand,
 } from '../domain/companionDomain.js';
 
 const VALID_MODES = new Set(['bot', 'friend']);
@@ -244,6 +245,30 @@ export function validateChatMessageInput(payload) {
 export function validateCompanionSyncInput(payload) {
   try {
     return parseCompanionSnapshot(payload);
+  } catch (err) {
+    if (err instanceof CompanionValidationError) {
+      throw new ValidationError(err.message);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Validates incoming companion auto-move payload dispatched to Chess.com.
+ *
+ * @param {unknown} payload - Parsed JSON request body.
+ * @returns {{
+ *   moveUci: string,
+ *   fen: string | null,
+ *   delayMs: number,
+ *   enabled: boolean,
+ *   timestamp: number,
+ * }} Validated auto-move command.
+ * @throws {ValidationError} When payload fails structural or coordinate validation.
+ */
+export function validateAutoMoveCommandInput(payload) {
+  try {
+    return parseAutoMoveCommand(payload);
   } catch (err) {
     if (err instanceof CompanionValidationError) {
       throw new ValidationError(err.message);

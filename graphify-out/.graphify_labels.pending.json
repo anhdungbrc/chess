@@ -2,17 +2,16 @@
   "0": "app.js",
   "1": "httpServer.js",
   "2": "createGameService",
-  "3": "companionUiHelper.js",
+  "3": "bootstrapApp",
   "4": "chessUiHelper.test.js",
   "5": "aiEngine.js",
   "6": "httpServer.test.js",
   "7": "steps",
-  "8": "resolveReviewViewState",
+  "8": "ref_node_assert",
   "9": "services",
   "10": "renderApp",
   "11": "analysisHelper.test.js",
-  "12": "getViewerColor",
-  "13": "renderChatPanel",
-  "14": "handlePointerUp",
-  "16": "i18n.js"
+  "12": "handleCompanionSnapshot",
+  "13": "handlePointerUp",
+  "14": "i18n.js"
 }

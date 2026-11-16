@@ -2324,7 +2324,8 @@ body.has-fullscreen-board {
 
 .btn-trap-toggle,
 .btn-attack-toggle,
-.btn-anti-streak-toggle {
+.btn-anti-streak-toggle,
+.btn-auto-move-toggle {
   width: 100%;
   padding: 8px 12px;
   font-size: 0.88rem;
@@ -2343,9 +2344,17 @@ body.has-fullscreen-board {
 
 .btn-trap-toggle:hover,
 .btn-attack-toggle:hover,
-.btn-anti-streak-toggle:hover {
+.btn-anti-streak-toggle:hover,
+.btn-auto-move-toggle:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
+}
+
+.btn-auto-move-toggle.is-active {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  border-color: #10b981;
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.45);
 }
 
 .btn-trap-toggle.is-active {

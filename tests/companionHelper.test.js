@@ -8,6 +8,9 @@ import {
   generateRelayScript,
   generateBookmarklet,
   inferTurnFromLastMove,
+  calculateSquareCenter,
+  getRandomAutoMoveDelayMs,
+  executeChessComMove,
 } from '../public/companionHelper.js';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -179,4 +182,144 @@ test('generateRelayScript does not hardcode White to move', () => {
   const script = generateRelayScript('http://localhost:3000');
   assert.ok(!script.includes("' w - - 0 1'"));
   assert.ok(script.includes('inferTurnFromLastMove'));
+});
+
+/**
+ * Validates calculateSquareCenter accurately maps algebraic squares to screen coordinates in both orientations.
+ */
+test('calculateSquareCenter accurately maps algebraic squares to coordinates', () => {
+  const boardRect = { left: 100, top: 200, width: 800, height: 800 };
+
+  // White orientation: a1 is bottom-left, h8 is top-right, e4 is center
+  const a1White = calculateSquareCenter('a1', boardRect, false);
+  assert.deepEqual(a1White, { clientX: 150, clientY: 950 });
+
+  const h8White = calculateSquareCenter('h8', boardRect, false);
+  assert.deepEqual(h8White, { clientX: 850, clientY: 250 });
+
+  const e4White = calculateSquareCenter('e4', boardRect, false);
+  assert.deepEqual(e4White, { clientX: 550, clientY: 650 });
+
+  // Black orientation (flipped): a1 is top-right, h8 is bottom-left
+  const a1Black = calculateSquareCenter('a1', boardRect, true);
+  assert.deepEqual(a1Black, { clientX: 850, clientY: 250 });
+
+  const h8Black = calculateSquareCenter('h8', boardRect, true);
+  assert.deepEqual(h8Black, { clientX: 150, clientY: 950 });
+
+  // Fallback on invalid square
+  assert.equal(calculateSquareCenter('z9', boardRect, false), null);
+  assert.equal(calculateSquareCenter(null, boardRect, false), null);
+});
+
+/**
+ * Validates generateRelayScript embeds auto-move execution, SSE listener, and floating badge.
+ */
+test('generateRelayScript includes auto-move capabilities and floating badge', () => {
+  const script = generateRelayScript('http://localhost:3000');
+  assert.ok(script.includes('companion:auto-move'));
+  assert.ok(script.includes('/api/companion/command'));
+  assert.ok(script.includes('calculateSquareCenter'));
+  assert.ok(script.includes('executeChessComMove'));
+  assert.ok(script.includes('chess-companion-badge'));
+});
+
+/**
+ * Validates getRandomAutoMoveDelayMs generates uniform integer delays within 3-10s.
+ */
+test('getRandomAutoMoveDelayMs returns integer delays strictly bounded between min and max ms', () => {
+  for (let i = 0; i < 50; i += 1) {
+    const delay = getRandomAutoMoveDelayMs();
+    assert.ok(Number.isInteger(delay), 'Delay must be an integer');
+    assert.ok(delay >= 3000, `Delay ${delay} must be >= 3000`);
+    assert.ok(delay <= 10000, `Delay ${delay} must be <= 10000`);
+  }
+
+  // Custom bounds
+  const custom = getRandomAutoMoveDelayMs(4000, 5000);
+  assert.ok(custom >= 4000 && custom <= 5000);
+});
+
+/**
+ * Validates executeChessComMove dispatches standard user DOM events without mutating internal board.game state.
+ */
+test('executeChessComMove dispatches standard user DOM events without mutating internal board.game state', async () => {
+  const dispatchedEvents = [];
+  function createMockElement(className) {
+    return {
+      className,
+      dispatchEvent: (evt) => {
+        dispatchedEvents.push({ targetClass: className, type: evt.type });
+        return true;
+      },
+    };
+  }
+
+  const pieceE2 = createMockElement('piece wp square-52');
+  const mockBoard = {
+    game: {
+      move: () => {
+        assert.fail(
+          'executeChessComMove must never call board.game.move directly as it causes WebSocket desynchronization'
+        );
+      },
+    },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 800 }),
+    querySelector: (selector) => {
+      if (selector === '.piece.square-52') {
+        return pieceE2;
+      }
+      return null;
+    },
+    dispatchEvent: (evt) => {
+      dispatchedEvents.push({ targetClass: 'board', type: evt.type });
+      return true;
+    },
+  };
+
+  const originalDoc = globalThis.document;
+  globalThis.document = {
+    elementFromPoint: () => null,
+    querySelector: () => null,
+    dispatchEvent: () => true,
+  };
+
+  try {
+    const result = await executeChessComMove(mockBoard, 'e2e4', false);
+    assert.equal(result, true);
+    assert.ok(
+      dispatchedEvents.some((e) => e.targetClass === 'piece wp square-52' && e.type === 'pointerdown'),
+      'Source piece must receive pointerdown'
+    );
+    assert.ok(
+      dispatchedEvents.some((e) => e.targetClass === 'piece wp square-52' && e.type === 'click'),
+      'Source piece must receive click'
+    );
+    assert.ok(
+      dispatchedEvents.some((e) => e.targetClass === 'board' && e.type === 'click'),
+      'Target square must receive click on board'
+    );
+  } finally {
+    globalThis.document = originalDoc;
+  }
+});
+
+/**
+ * Validates generateRelayScript avoids mutating board.game.move directly to preserve WebSocket connection.
+ */
+test('generateRelayScript avoids board.game.move to preserve WebSocket live connection', () => {
+  const script = generateRelayScript('http://localhost:3000');
+  assert.ok(!script.includes('board.game.move('));
+  assert.ok(!script.includes('board.game?.move('));
+});
+
+/**
+ * Validates generateRelayScript embeds strict human turn verification, deferred re-check, and retry logic.
+ */
+test('generateRelayScript enforces strict human turn check, deferred verification, and self-healing retry', () => {
+  const script = generateRelayScript('http://localhost:3000');
+  assert.ok(script.includes('getRandomAutoMoveDelayMs'));
+  assert.ok(script.includes('playerColor'));
+  assert.ok(script.includes('isSamePosition'));
+  assert.ok(script.includes('retrying move'));
 });

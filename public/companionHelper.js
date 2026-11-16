@@ -190,6 +190,211 @@ export function inferTurnFromLastMove(grid, highlightedSquares) {
 }
 
 /**
+ * Calculates the screen center coordinates of an algebraic square on a chess board.
+ *
+ * @param {string} square - Algebraic square coordinate (e.g. 'e4').
+ * @param {{ left: number, top: number, width: number, height: number }} boardRect - Bounding client rectangle of board element.
+ * @param {boolean} [isFlipped=false] - True when viewing from Black's perspective.
+ * @returns {{ clientX: number, clientY: number } | null} Screen center coordinates or null if square/rect is invalid.
+ */
+export function calculateSquareCenter(square, boardRect, isFlipped = false) {
+  if (typeof square !== 'string' || !/^[a-h][1-8]$/.test(square)) {
+    return null;
+  }
+  if (!boardRect || typeof boardRect.left !== 'number' || typeof boardRect.top !== 'number') {
+    return null;
+  }
+
+  const sqWidth = boardRect.width / 8;
+  const sqHeight = boardRect.height / 8;
+  const fileIdx = square.charCodeAt(0) - 97; // 'a' -> 0, 'h' -> 7
+  const rankNum = Number(square[1]); // 1..8
+
+  // When board is flipped (Black perspective), files run h->a and ranks run 1->8
+  const col = isFlipped ? 7 - fileIdx : fileIdx;
+  const row = isFlipped ? rankNum - 1 : 8 - rankNum;
+
+  return {
+    clientX: Math.round(boardRect.left + (col + 0.5) * sqWidth),
+    clientY: Math.round(boardRect.top + (row + 0.5) * sqHeight),
+  };
+}
+
+/**
+ * Generates a randomized human-like delay between minMs and maxMs (defaulting to 3s-10s).
+ * Simulates natural human hesitation before committing a chess move.
+ *
+ * @param {number} [minMs=3000] - Lower bound delay in milliseconds.
+ * @param {number} [maxMs=10000] - Upper bound delay in milliseconds.
+ * @returns {number} Integer delay in milliseconds.
+ */
+export function getRandomAutoMoveDelayMs(minMs = 3000, maxMs = 10000) {
+  const safeMin = Math.max(0, Math.trunc(minMs));
+  const safeMax = Math.max(safeMin, Math.trunc(maxMs));
+  // Uniform discrete random distribution across [safeMin, safeMax]
+  return Math.floor(Math.random() * (safeMax - safeMin + 1)) + safeMin;
+}
+
+/**
+ * Dispatches simulated native user mouse and pointer clicks on Chess.com board to execute a move.
+ * Simulates standard human interactions without mutating internal board state to preserve
+ * WebSocket live connectivity and avoid server-side state desynchronization.
+ *
+ * @param {Element | any} board - Board DOM element (wc-chess-board or chess-board).
+ * @param {string} moveUci - Move in UCI format (e.g. 'e2e4' or 'e7e8q').
+ * @param {boolean} [isFlipped=false] - Whether board is currently flipped.
+ * @param {'click' | 'drag'} [mode='click'] - Simulation interaction mode.
+ * @returns {Promise<boolean>} True when move simulation completes successfully.
+ */
+export async function executeChessComMove(board, moveUci, isFlipped = false, mode = 'click') {
+  if (!board || typeof moveUci !== 'string' || moveUci.length < 4) {
+    return false;
+  }
+  const fromSquare = moveUci.slice(0, 2);
+  const toSquare = moveUci.slice(2, 4);
+  const promoPiece = moveUci.length >= 5 ? moveUci.slice(4, 5).toLowerCase() : null;
+
+  const doc = typeof document !== 'undefined' ? document : null;
+  const win = typeof window !== 'undefined' ? window : null;
+  if (!doc) {
+    return false;
+  }
+
+  const rect = typeof board.getBoundingClientRect === 'function'
+    ? board.getBoundingClientRect()
+    : { left: 0, top: 0, width: 800, height: 800 };
+
+  const fromCoords = calculateSquareCenter(fromSquare, rect, isFlipped);
+  const toCoords = calculateSquareCenter(toSquare, rect, isFlipped);
+  if (!fromCoords || !toCoords) {
+    return false;
+  }
+
+  // Directly target Chess.com piece DOM elements via class names (.piece.square-XY)
+  // Chess.com CSS convention: square-11 = a1, square-52 = e2, square-88 = h8
+  const fromCol = fromSquare.charCodeAt(0) - 96;
+  const fromRank = fromSquare[1];
+  const toCol = toSquare.charCodeAt(0) - 96;
+  const toRank = toSquare[1];
+
+  const fromPieceElem = typeof board.querySelector === 'function'
+    ? board.querySelector(`.piece.square-${fromCol}${fromRank}`)
+    : null;
+  const toPieceElem = typeof board.querySelector === 'function'
+    ? board.querySelector(`.piece.square-${toCol}${toRank}`)
+    : null;
+
+  const fromTarget =
+    fromPieceElem ||
+    (typeof doc.elementFromPoint === 'function'
+      ? doc.elementFromPoint(fromCoords.clientX, fromCoords.clientY)
+      : null) ||
+    board;
+  const toTarget =
+    toPieceElem ||
+    (typeof doc.elementFromPoint === 'function'
+      ? doc.elementFromPoint(toCoords.clientX, toCoords.clientY)
+      : null) ||
+    board;
+
+  const PointerEvt =
+    typeof PointerEvent !== 'undefined'
+      ? PointerEvent
+      : typeof CustomEvent !== 'undefined'
+        ? CustomEvent
+        : Event;
+  const MouseEvt =
+    typeof MouseEvent !== 'undefined'
+      ? MouseEvent
+      : typeof CustomEvent !== 'undefined'
+        ? CustomEvent
+        : Event;
+
+  function dispatchSequence(target, coords) {
+    const opts = {
+      bubbles: true,
+      cancelable: true,
+      view: win,
+      clientX: coords.clientX,
+      clientY: coords.clientY,
+      screenX: coords.clientX,
+      screenY: coords.clientY,
+      button: 0,
+      buttons: 1,
+      pointerId: 1,
+      pointerType: 'mouse',
+      isPrimary: true,
+      pressure: 0.5,
+    };
+    try {
+      target.dispatchEvent(new PointerEvt('pointerdown', opts));
+      target.dispatchEvent(new MouseEvt('mousedown', opts));
+    } catch {}
+
+    const releaseOpts = { ...opts, buttons: 0, pressure: 0 };
+    try {
+      target.dispatchEvent(new PointerEvt('pointerup', releaseOpts));
+      target.dispatchEvent(new MouseEvt('mouseup', releaseOpts));
+      target.dispatchEvent(new MouseEvt('click', releaseOpts));
+    } catch {}
+  }
+
+  if (mode === 'drag') {
+    // Isolated Drag-and-drop sequence for accounts set to "Drag pieces only"
+    const downOpts = {
+      bubbles: true,
+      cancelable: true,
+      view: win,
+      clientX: fromCoords.clientX,
+      clientY: fromCoords.clientY,
+      button: 0,
+      buttons: 1,
+      pointerId: 1,
+      pointerType: 'mouse',
+      isPrimary: true,
+      pressure: 0.5,
+    };
+    const moveOpts = {
+      ...downOpts,
+      clientX: toCoords.clientX,
+      clientY: toCoords.clientY,
+    };
+    const upOpts = { ...moveOpts, buttons: 0, pressure: 0 };
+
+    try {
+      fromTarget.dispatchEvent(new PointerEvt('pointerdown', downOpts));
+      fromTarget.dispatchEvent(new MouseEvt('mousedown', downOpts));
+      doc.dispatchEvent(new PointerEvt('pointermove', moveOpts));
+      doc.dispatchEvent(new MouseEvt('mousemove', moveOpts));
+      toTarget.dispatchEvent(new PointerEvt('pointerup', upOpts));
+      toTarget.dispatchEvent(new MouseEvt('mouseup', upOpts));
+    } catch {}
+  } else {
+    // Standard Click-to-move sequence (clean, natural, triggers Chess.com WebSocket packet)
+    dispatchSequence(fromTarget, fromCoords);
+    // Natural human pause allowing Chess.com UI state machine to select origin square
+    await new Promise((r) => setTimeout(r, 120));
+    dispatchSequence(toTarget, toCoords);
+  }
+
+  // Handle pawn promotion dialog if applicable
+  if (promoPiece || (fromRank === '7' && toRank === '8') || (fromRank === '2' && toRank === '1')) {
+    await new Promise((r) => setTimeout(r, 150));
+    const pieceChar = (promoPiece || 'q').toLowerCase();
+    const promoElem =
+      doc.querySelector(`.promotion-window .${pieceChar}`) ||
+      doc.querySelector(`.promotion-window [class*="${pieceChar}"]`) ||
+      doc.querySelector(`[data-piece*="${pieceChar}"]`) ||
+      doc.querySelector(`.piece.w${pieceChar}, .piece.b${pieceChar}`);
+    if (promoElem && typeof promoElem.click === 'function') {
+      promoElem.click();
+    }
+  }
+
+  return true;
+}
+
+/**
  * Generates an optimized, standalone JavaScript relay snippet for Chess.com live boards.
  *
  * @param {string} [serverUrl='http://localhost:3000'] - Companion server base URL.
@@ -200,11 +405,51 @@ export function generateRelayScript(serverUrl = 'http://localhost:3000') {
   return `(function() {
   const SERVER_URL = '${cleanUrl}';
   const SYNC_URL = '${cleanUrl}/api/companion/sync';
+  const COMMAND_URL = '${cleanUrl}/api/companion/command';
   const FILES = ['a','b','c','d','e','f','g','h'];
   let lastSentFen = null;
+  let lastExecutedFen = null;
+  let scheduledFen = null;
+  let activeAutoMoveTimeout = null;
+  let isExecutingMove = false;
   let syncTimer = null;
+  let autoMoveEnabled = true;
 
+  ${isSamePosition.toString()}
   ${inferTurnFromLastMove.toString()}
+  ${calculateSquareCenter.toString()}
+  ${getRandomAutoMoveDelayMs.toString()}
+  ${executeChessComMove.toString()}
+
+  function updateBadge() {
+    let badge = document.getElementById('chess-companion-badge');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = 'chess-companion-badge';
+      badge.style.position = 'fixed';
+      badge.style.top = '12px';
+      badge.style.right = '12px';
+      badge.style.zIndex = '999999';
+      badge.style.background = 'rgba(20, 20, 20, 0.9)';
+      badge.style.color = '#fff';
+      badge.style.padding = '6px 12px';
+      badge.style.borderRadius = '18px';
+      badge.style.fontFamily = 'system-ui, sans-serif';
+      badge.style.fontSize = '12px';
+      badge.style.fontWeight = '600';
+      badge.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
+      badge.style.cursor = 'pointer';
+      badge.style.userSelect = 'none';
+      badge.style.transition = 'all 0.2s ease';
+      badge.title = 'Click to toggle auto-move';
+      badge.addEventListener('click', () => {
+        autoMoveEnabled = !autoMoveEnabled;
+        updateBadge();
+      });
+      document.body.appendChild(badge);
+    }
+    badge.innerHTML = '♟ Sync • <span style="color:' + (autoMoveEnabled ? '#81b64c' : '#ef4444') + '">⚡ Auto: ' + (autoMoveEnabled ? 'ON' : 'OFF') + '</span>';
+  }
 
   function extractBoardFen() {
     const board = document.querySelector('wc-chess-board, chess-board');
@@ -268,6 +513,106 @@ export function generateRelayScript(serverUrl = 'http://localhost:3000') {
     };
   }
 
+  async function handleAutoMoveCommand(cmd) {
+    if (!autoMoveEnabled || !cmd || !cmd.moveUci) return;
+    const board = document.querySelector('wc-chess-board, chess-board');
+    if (!board) return;
+
+    // Detect player color strictly from board orientation (flipped -> black, normal -> white)
+    const isFlipped = board.classList.contains('flipped');
+    const playerColor = isFlipped ? 'b' : 'w';
+
+    const currentData = extractBoardFen();
+    if (!currentData) return;
+
+    // Strict human turn check: Only proceed when it is the human player's turn
+    const fenTurn = currentData.fen.split(' ')[1];
+    if (fenTurn !== playerColor) {
+      return;
+    }
+
+    // Check clock turn indicator if clock elements are rendered on Chess.com
+    const topClock = document.querySelector('.clock-top');
+    if (topClock && topClock.classList.contains('clock-player-turn')) {
+      return;
+    }
+
+    // Prevent duplicate moves on already executed board positions
+    if (lastExecutedFen && isSamePosition(currentData.fen, lastExecutedFen)) {
+      return;
+    }
+
+    // If an auto-move is already scheduled for this exact FEN, avoid duplicate timer
+    if (scheduledFen && isSamePosition(currentData.fen, scheduledFen)) {
+      return;
+    }
+
+    // Clear any previous timer if board position has changed
+    if (activeAutoMoveTimeout) {
+      clearTimeout(activeAutoMoveTimeout);
+      activeAutoMoveTimeout = null;
+    }
+
+    scheduledFen = currentData.fen;
+    const delay = (typeof cmd.delayMs === 'number' && cmd.delayMs >= 3000)
+      ? cmd.delayMs
+      : getRandomAutoMoveDelayMs(3000, 10000);
+
+    console.log('[Chess Companion] Scheduling auto-move ' + cmd.moveUci + ' with delay ' + delay + 'ms for color ' + playerColor);
+
+    activeAutoMoveTimeout = setTimeout(async () => {
+      activeAutoMoveTimeout = null;
+      scheduledFen = null;
+
+      if (!autoMoveEnabled || isExecutingMove) return;
+
+      // Deferred re-verification 1: Re-check board state
+      const latestData = extractBoardFen();
+      if (!latestData) return;
+
+      // Deferred re-verification 2: Abort if board changed during the 3-20s delay
+      if (cmd.fen && !isSamePosition(latestData.fen, cmd.fen)) {
+        console.log('[Chess Companion] Board position changed during delay, skipping stale auto-move');
+        return;
+      }
+
+      // Deferred re-verification 3: Verify it is STILL the human player's turn
+      const latestTurn = latestData.fen.split(' ')[1];
+      if (latestTurn !== playerColor) {
+        console.log('[Chess Companion] No longer player turn after delay, skipping auto-move');
+        return;
+      }
+
+      isExecutingMove = true;
+      const fenBefore = latestData.fen;
+      const currentFlipped = board.classList.contains('flipped');
+
+      // Primary attempt: Natural click-to-move (triggers native Chess.com WebSocket packet)
+      await executeChessComMove(board, cmd.moveUci, currentFlipped, 'click');
+
+      // Verify execution: wait 350ms and check whether board advanced
+      await new Promise(r => setTimeout(r, 350));
+      const verifyData = extractBoardFen();
+
+      if (verifyData && !isSamePosition(verifyData.fen, fenBefore)) {
+        lastExecutedFen = fenBefore;
+        console.log('[Chess Companion] Auto-move successfully executed via click:', cmd.moveUci);
+      } else {
+        // Fallback attempt: Drag-and-drop sequence (for accounts with Drag pieces only setting)
+        console.warn('[Chess Companion] Click did not advance board, retrying move via drag:', cmd.moveUci);
+        await executeChessComMove(board, cmd.moveUci, currentFlipped, 'drag');
+        await new Promise(r => setTimeout(r, 350));
+        const retryData = extractBoardFen();
+        if (retryData && !isSamePosition(retryData.fen, fenBefore)) {
+          lastExecutedFen = fenBefore;
+          console.log('[Chess Companion] Auto-move succeeded on drag retry:', cmd.moveUci);
+        }
+      }
+
+      isExecutingMove = false;
+    }, delay);
+  }
+
   function syncNow() {
     const data = extractBoardFen();
     if (!data || data.fen === lastSentFen) return;
@@ -286,11 +631,44 @@ export function generateRelayScript(serverUrl = 'http://localhost:3000') {
     syncTimer = setTimeout(syncNow, 150);
   }
 
+  // Periodic polling fallback for auto-move commands
+  async function pollCommand() {
+    try {
+      const res = await fetch(COMMAND_URL, { mode: 'cors' });
+      if (res.ok) {
+        const body = await res.json();
+        if (body && body.command) {
+          handleAutoMoveCommand(body.command);
+        }
+      }
+    } catch (err) {}
+  }
+
+  // SSE stream for instant auto-move delivery
+  try {
+    const sse = new EventSource(SERVER_URL + '/api/companion/events');
+    sse.addEventListener('companion:auto-move', (event) => {
+      try {
+        const cmd = JSON.parse(event.data);
+        handleAutoMoveCommand(cmd);
+      } catch (err) {}
+    });
+  } catch (err) {}
+
+  setInterval(pollCommand, 800);
+
   const observer = new MutationObserver(scheduleSync);
-  const target = document.querySelector('wc-chess-board, chess-board, body');
+  const target = document.querySelector('wc-chess-board, chess-board, .board-layout') || document.body;
   if (target) {
-    observer.observe(target, { childList: true, subtree: true, attributes: true });
+    const isBoard = target !== document.body;
+    observer.observe(
+      target,
+      isBoard
+        ? { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] }
+        : { childList: true, subtree: true }
+    );
     scheduleSync();
+    updateBadge();
     console.log('[Chess Companion] Connected to ' + SERVER_URL);
   }
 })();`;

@@ -15,6 +15,7 @@ import {
   formatContinuousAttackButtonText,
   resolveCompanionPrimaryHint,
   formatProactiveTrapList,
+  formatAutoMoveButtonText,
 } from '../public/companionUiHelper.js';
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -606,6 +607,54 @@ test('resolveCompanionPrimaryHint elevates king hunt sacrifice moves when contin
   assert.equal(resultNone.primaryMoveUci, 'e2e4');
   assert.equal(resultNone.isAttackSacrificePrimary, false);
   assert.ok(resultNone.label.includes('Chưa có cơ hội thí quân'));
+});
+
+/**
+ * Validates formatAutoMoveButtonText formats button text and tooltips in Vietnamese and English.
+ */
+test('formatAutoMoveButtonText formats button text and tooltips accurately', () => {
+  const onVi = formatAutoMoveButtonText(true, 650, 'vi');
+  assert.ok(onVi.buttonText.includes('BẬT'));
+  assert.ok(onVi.buttonText.includes('650ms'));
+  assert.ok(onVi.titleText.includes('Bấm để tắt'));
+
+  const offVi = formatAutoMoveButtonText(false, 650, 'vi');
+  assert.ok(offVi.buttonText.includes('TẮT'));
+  assert.ok(offVi.titleText.includes('Bấm để bật'));
+
+  const onEn = formatAutoMoveButtonText(true, 500, 'en');
+  assert.ok(onEn.buttonText.includes('ON'));
+  assert.ok(onEn.titleText.includes('disable'));
+
+  const randomOnVi = formatAutoMoveButtonText(true, '3-10s', 'vi');
+  assert.ok(randomOnVi.buttonText.includes('BẬT (3-10s)'));
+
+  const defaultOnVi = formatAutoMoveButtonText(true, undefined, 'vi');
+  assert.ok(defaultOnVi.buttonText.includes('BẬT (3-10s)'));
+
+  const offEn = formatAutoMoveButtonText(false, 500, 'en');
+  assert.ok(offEn.buttonText.includes('OFF'));
+  assert.ok(offEn.titleText.includes('enable'));
+});
+
+/**
+ * Validates resolveCompanionPrimaryHint respects selectedMoveUci overrides from interactive trap selection.
+ */
+test('resolveCompanionPrimaryHint respects user-selected move override from trap cards or pills', () => {
+  const result = resolveCompanionPrimaryHint({
+    bestMoveUci: 'g1f3',
+    selectedMoveUci: 'f3e5',
+    trap: {
+      suggestedMoveUci: 'f3e5',
+      name: { vi: 'Bẫy Blackburne', en: 'Blackburne Shilling Trap' },
+      type: 'offensive',
+    },
+    lang: 'vi',
+  });
+
+  assert.equal(result.primaryMoveUci, 'f3e5');
+  assert.equal(result.primaryColor, 'rgba(239, 68, 68, 0.95)');
+  assert.ok(result.label.includes('f3e5'));
 });
 
 
