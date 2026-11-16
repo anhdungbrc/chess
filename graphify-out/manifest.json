@@ -18,9 +18,9 @@
     "semantic_hash": ""
   },
   "public/app.js": {
-    "mtime": 1794818680.4560056,
-    "seen": 1794818998.0639248,
-    "ast_hash": "7f644f1125cfdeb5b5b28b9caf87b0e4",
+    "mtime": 1794820956.6919782,
+    "seen": 1794821030.1486828,
+    "ast_hash": "ab38544a3516382b5aea2911d09ffce8",
     "semantic_hash": ""
   },
   "public/chessAssets.js": {
@@ -36,15 +36,15 @@
     "semantic_hash": "214fab00d1c35258e0065bb425828b17"
   },
   "public/companionHelper.js": {
-    "mtime": 1794818201.9720173,
-    "seen": 1794818657.2962432,
-    "ast_hash": "d979b1b05e248d392a40e0487c2a9f97",
+    "mtime": 1794820779.1606362,
+    "seen": 1794821030.1486828,
+    "ast_hash": "51ff1e1272b0b44a0c3244fcba45f183",
     "semantic_hash": ""
   },
   "public/companionUiHelper.js": {
-    "mtime": 1794818979.2399445,
-    "seen": 1794818998.0639248,
-    "ast_hash": "93ad21b59c9a9314bef93fce8dcf3349",
+    "mtime": 1794820867.4456763,
+    "seen": 1794821030.1486828,
+    "ast_hash": "9c8cfc75797e5c22f37895b15f89a49c",
     "semantic_hash": ""
   },
   "public/i18n.js": {
@@ -162,9 +162,9 @@
     "semantic_hash": ""
   },
   "tests/companionHelper.test.js": {
-    "mtime": 1794818202.2609458,
-    "seen": 1794818657.2962432,
-    "ast_hash": "25d731a17f31e90260e1d8cfda5ca0dd",
+    "mtime": 1794820719.0703678,
+    "seen": 1794821030.1486828,
+    "ast_hash": "a1037059024335bec5bf6039e1f136df",
     "semantic_hash": ""
   },
   "tests/companionHttp.test.js": {
@@ -180,9 +180,9 @@
     "semantic_hash": ""
   },
   "tests/companionUi.test.js": {
-    "mtime": 1794818842.4132211,
-    "seen": 1794818998.0639248,
-    "ast_hash": "f33bcdd39da59d9dc1a39fb66947ee97",
+    "mtime": 1794820883.387161,
+    "seen": 1794821030.1486828,
+    "ast_hash": "00c95acfbe268d203b397d3147eb6f4d",
     "semantic_hash": ""
   },
   "tests/gameService.test.js": {

@@ -6,7 +6,7 @@ import {
   isPieceSacrifice,
   isSafeRunnerUpMove,
 } from './analysisHelper.js';
-import { isSamePosition } from './companionHelper.js';
+import { inferCastlingRights, isSamePosition } from './companionHelper.js';
 import { parseFenBoard } from './reviewHelper.js';
 
 const FILE_LETTERS = 'abcdefgh';
@@ -36,6 +36,41 @@ export function setFenTurn(fen, turn) {
   const parts = fen.trim().split(/\s+/);
   parts[1] = turn;
   return parts.join(' ');
+}
+
+/**
+ * Normalizes and ensures castling availability rights within a FEN position.
+ * If incoming FEN has '-' (e.g. from an older relay script), restores valid rights
+ * based on piece positions and tracked rights so Stockfish can suggest castling moves.
+ *
+ * @param {string} fen - Standard FEN string.
+ * @param {string} [trackedRights='KQkq'] - Previously active or default castling rights string.
+ * @returns {{ fen: string, castling: string }} Updated FEN with verified castling field and the resolved rights.
+ */
+export function ensureFenCastlingRights(fen, trackedRights = 'KQkq') {
+  if (typeof fen !== 'string') {
+    return { fen: '', castling: '-' };
+  }
+
+  const parts = fen.trim().split(/\s+/);
+  if (parts.length < 2) {
+    return { fen, castling: '-' };
+  }
+
+  const placement = parts[0];
+  const grid = fenToBoardMatrix(fen);
+
+  // Standard starting placement always resets full castling rights
+  if (placement === 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR') {
+    parts[2] = 'KQkq';
+    return { fen: parts.join(' '), castling: 'KQkq' };
+  }
+
+  const existingRights = parts[2] && parts[2] !== '-' ? parts[2] : (trackedRights || 'KQkq');
+  const resolvedRights = inferCastlingRights(grid, existingRights);
+
+  parts[2] = resolvedRights;
+  return { fen: parts.join(' '), castling: resolvedRights };
 }
 
 /**

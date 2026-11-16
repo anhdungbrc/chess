@@ -190,6 +190,40 @@ export function inferTurnFromLastMove(grid, highlightedSquares) {
 }
 
 /**
+ * Infers and updates castling availability rights based on 8x8 piece grid and previously held rights.
+ * Revokes rights when Kings or Rooks vacate their starting squares, adhering to immutable chess rules.
+ *
+ * @param {Array<Array<string | null>>} grid - 8x8 FEN piece characters (row 0 = rank 8, row 7 = rank 1).
+ * @param {string} [currentRights='KQkq'] - Previously recorded castling rights string.
+ * @returns {string} Updated FEN castling field (e.g. 'KQkq', 'Kq', or '-').
+ */
+export function inferCastlingRights(grid, currentRights = 'KQkq') {
+  if (!Array.isArray(grid) || grid.length !== 8) {
+    return '-';
+  }
+
+  const prev = typeof currentRights === 'string' && currentRights ? currentRights : 'KQkq';
+
+  // White king on e1 (row 7, col 4), rooks on a1 (row 7, col 0) and h1 (row 7, col 7)
+  const whiteKingOnE1 = grid[7]?.[4] === 'K';
+  const canWhiteKingside = prev.includes('K') && whiteKingOnE1 && grid[7]?.[7] === 'R';
+  const canWhiteQueenside = prev.includes('Q') && whiteKingOnE1 && grid[7]?.[0] === 'R';
+
+  // Black king on e8 (row 0, col 4), rooks on a8 (row 0, col 0) and h8 (row 0, col 7)
+  const blackKingOnE8 = grid[0]?.[4] === 'k';
+  const canBlackKingside = prev.includes('k') && blackKingOnE8 && grid[0]?.[7] === 'r';
+  const canBlackQueenside = prev.includes('q') && blackKingOnE8 && grid[0]?.[0] === 'r';
+
+  let rights = '';
+  if (canWhiteKingside) rights += 'K';
+  if (canWhiteQueenside) rights += 'Q';
+  if (canBlackKingside) rights += 'k';
+  if (canBlackQueenside) rights += 'q';
+
+  return rights || '-';
+}
+
+/**
  * Generates an optimized, standalone JavaScript relay snippet for Chess.com live boards.
  *
  * @param {string} [serverUrl='http://localhost:3000'] - Companion server base URL.
@@ -202,15 +236,60 @@ export function generateRelayScript(serverUrl = 'http://localhost:3000') {
   const FILES = ['a','b','c','d','e','f','g','h'];
   let lastSentFen = null;
   let syncTimer = null;
+  let currentCastling = 'KQkq';
 
   ${isSamePosition.toString()}
   ${inferTurnFromLastMove.toString()}
+  ${inferCastlingRights.toString()}
 
   function extractBoardFen() {
     const board = document.querySelector('wc-chess-board, chess-board');
     if (!board) return null;
     const pieces = board.querySelectorAll('.piece');
     if (!pieces || pieces.length === 0) return null;
+
+    // Detect orientation
+    const isFlipped = board.classList.contains('flipped');
+    const orientation = isFlipped ? 'black' : 'white';
+
+    // Highlighted squares indicating last move
+    const highlights = board.querySelectorAll('.highlight');
+    const squares = [];
+    let lastMove = null;
+    if (highlights.length >= 2) {
+      highlights.forEach(h => {
+        const sm = h.className.match(/\\bsquare-([1-8])([1-8])\\b/);
+        if (sm) squares.push(FILES[Number(sm[1])-1] + sm[2]);
+      });
+      if (squares.length >= 2) {
+        lastMove = { from: squares[0], to: squares[1] };
+      }
+    }
+
+    // Attempt official Chess.com FEN extraction if available
+    try {
+      if (typeof board.getFEN === 'function') {
+        const officialFen = board.getFEN();
+        if (typeof officialFen === 'string' && officialFen.includes('/')) {
+          return {
+            fen: officialFen,
+            orientation,
+            lastMove,
+            timestamp: Date.now()
+          };
+        }
+      } else if (typeof board.game?.getFEN === 'function') {
+        const officialFen = board.game.getFEN();
+        if (typeof officialFen === 'string' && officialFen.includes('/')) {
+          return {
+            fen: officialFen,
+            orientation,
+            lastMove,
+            timestamp: Date.now()
+          };
+        }
+      }
+    } catch (_) {}
 
     const grid = Array.from({ length: 8 }, () => Array(8).fill(null));
     pieces.forEach(p => {
@@ -239,21 +318,27 @@ export function generateRelayScript(serverUrl = 'http://localhost:3000') {
       return rowStr;
     });
 
-    // Detect orientation
-    const isFlipped = board.classList.contains('flipped');
-    const orientation = isFlipped ? 'black' : 'white';
+    const placement = rows.join('/');
+    // Reset castling rights when standard starting piece placement is detected
+    if (placement === 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR') {
+      currentCastling = 'KQkq';
+    } else {
+      currentCastling = inferCastlingRights(grid, currentCastling);
+    }
 
-    // Highlighted squares indicating last move
-    const highlights = board.querySelectorAll('.highlight');
-    const squares = [];
-    let lastMove = null;
-    if (highlights.length >= 2) {
-      highlights.forEach(h => {
-        const sm = h.className.match(/\\bsquare-([1-8])([1-8])\\b/);
-        if (sm) squares.push(FILES[Number(sm[1])-1] + sm[2]);
-      });
-      if (squares.length >= 2) {
-        lastMove = { from: squares[0], to: squares[1] };
+    // Infer en passant target square from 2-square pawn move if applicable
+    let enPassant = '-';
+    if (lastMove && lastMove.from && lastMove.to && lastMove.from[0] === lastMove.to[0]) {
+      const fromRank = Number(lastMove.from[1]);
+      const toRank = Number(lastMove.to[1]);
+      if (Math.abs(toRank - fromRank) === 2) {
+        const destFileIdx = lastMove.to.charCodeAt(0) - 97;
+        const destRankIdx = 8 - toRank;
+        const movedPiece = grid[destRankIdx] && grid[destRankIdx][destFileIdx];
+        if (movedPiece && movedPiece.toLowerCase() === 'p') {
+          const epRank = (fromRank + toRank) / 2;
+          enPassant = lastMove.from[0] + epRank;
+        }
       }
     }
 
@@ -261,7 +346,7 @@ export function generateRelayScript(serverUrl = 'http://localhost:3000') {
     const turn = inferTurnFromLastMove(grid, squares);
 
     return {
-      fen: rows.join('/') + ' ' + turn + ' - - 0 1',
+      fen: placement + ' ' + turn + ' ' + currentCastling + ' ' + enPassant + ' 0 1',
       orientation,
       lastMove,
       timestamp: Date.now()

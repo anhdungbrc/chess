@@ -1,17 +1,17 @@
 # Graph Report - chess  (2026-11-16)
 
 ## Corpus Check
-- 38 files · ~77,932 words
+- 38 files · ~79,045 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 2 file(s) not represented in the graph (top: (none) 1, .css 1)
 
 ## Summary
-- 523 nodes · 1444 edges · 12 communities
+- 525 nodes · 1453 edges · 11 communities
 - Extraction: 91% EXTRACTED · 9% INFERRED · 0% AMBIGUOUS · INFERRED: 131 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `da734d07`
+- Built from commit: `b1ba083a`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -19,20 +19,19 @@
 - app.js
 - httpServer.js
 - createGameService
-- trapHelper.js
 - chessUiHelper.test.js
 - aiEngine.js
 - httpServer.test.js
 - steps
 - services
+- createStockfishAnalyzer
 - analysisHelper.test.js
-- handleCompanionSnapshot
 - resolveReviewViewState
 
 ## God Nodes (most connected - your core abstractions)
 1. `createGameService()` - 59 edges
-2. `renderApp()` - 27 edges
-3. `handleCompanionSnapshot()` - 27 edges
+2. `handleCompanionSnapshot()` - 28 edges
+3. `renderApp()` - 27 edges
 4. `createHttpServer()` - 25 edges
 5. `getViewerColor()` - 24 edges
 6. `startTestServer()` - 24 edges
@@ -45,38 +44,34 @@
 - `testResolveBotSelection()` --calls--> `resolveBotSelection()`  [EXTRACTED]
   tests/botAndTimeDomain.test.js → src/domain/botProfiles.js
 - `startTestServer()` --calls--> `createHttpServer()`  [EXTRACTED]
+  tests/companionHttp.test.js → src/server/httpServer.js
+- `startTestServer()` --calls--> `createHttpServer()`  [EXTRACTED]
   tests/httpServer.test.js → src/server/httpServer.js
 - `testFriendPlayerChatAndBounds()` --calls--> `validateChatMessageInput()`  [EXTRACTED]
   tests/gameService.test.js → src/server/validators.js
 - `startTestServer()` --calls--> `createGameService()`  [EXTRACTED]
   tests/companionHttp.test.js → src/service/gameService.js
-- `testClassifyMove()` --calls--> `classifyMove()`  [EXTRACTED]
-  tests/analysisHelper.test.js → public/analysisHelper.js
 
 ## Import Cycles
 - None detected.
 
-## Communities (12 total, 0 thin omitted)
+## Communities (11 total, 0 thin omitted)
 
 ### Community 0 - "app.js"
 Cohesion: 0.06
-Nodes (98): appendBoardArrow(), applyIncomingSseGame(), applyLanguage(), applySelectionClasses(), authenticateChatSocket(), bootstrapApp(), cancelActiveAnalysis(), canReviewGame() (+90 more)
+Nodes (95): appendBoardArrow(), applyIncomingSseGame(), applyLanguage(), applySelectionClasses(), authenticateChatSocket(), bootstrapApp(), cancelActiveAnalysis(), canReviewGame() (+87 more)
 
 ### Community 1 - "httpServer.js"
-Cohesion: 0.06
-Nodes (53): BOT_PROFILES, DIFFICULTY_DEFAULT_BOT, findBotProfile(), listBotProfiles(), resolveBotSelection(), CompanionValidationError, normalizeLastMove(), parseCompanionSnapshot() (+45 more)
+Cohesion: 0.07
+Nodes (49): BOT_PROFILES, DIFFICULTY_DEFAULT_BOT, findBotProfile(), listBotProfiles(), resolveBotSelection(), CompanionValidationError, normalizeLastMove(), parseCompanionSnapshot() (+41 more)
 
 ### Community 2 - "createGameService"
 Cohesion: 0.08
 Nodes (70): applyClockAfterMove(), buildClockSnapshot(), buildSnapshot(), createClockState(), createGameService(), addRoomListener(), appendChatEntry(), appendSystemChat() (+62 more)
 
-### Community 3 - "trapHelper.js"
-Cohesion: 0.23
-Nodes (17): isPieceSacrifice(), uciToMoveSquares(), detectKingSacrificeAttack(), detectSacrificialTrap(), detectTacticalTrap(), findProactiveTraps(), getKingSquare(), getPieceAtSquare() (+9 more)
-
 ### Community 4 - "chessUiHelper.test.js"
-Cohesion: 0.12
-Nodes (31): applyOptimisticMove(), canInteractWithBoard(), CAPTURE_SORT_ORDER, clampBubblePosition(), computeCapturedMaterial(), FILES, formatClockMs(), PIECE_POINTS (+23 more)
+Cohesion: 0.11
+Nodes (36): renderAvatarBubbles(), showAvatarBubble(), applyOptimisticMove(), canInteractWithBoard(), canSendMatchChat(), CAPTURE_SORT_ORDER, clampBubblePosition(), computeCapturedMaterial() (+28 more)
 
 ### Community 5 - "aiEngine.js"
 Cohesion: 0.08
@@ -94,32 +89,32 @@ Nodes (19): concurrency, cancel-in-progress, group, jobs, verify, name, on, pull
 Cohesion: 0.17
 Nodes (11): services, autoDeployTrigger, branch, buildCommand, healthCheckPath, name, plan, region (+3 more)
 
-### Community 11 - "analysisHelper.test.js"
-Cohesion: 0.11
-Nodes (40): CLASSIFICATION_KEYS, classifyMove(), computeConsecutiveBestMovesStreak(), computeMoveAccuracy(), DEFAULT_CONSECUTIVE_BEST_MOVES_THRESHOLD, detectBrilliantMove(), detectGreatMove(), evalToWinPercent() (+32 more)
+### Community 11 - "createStockfishAnalyzer"
+Cohesion: 0.25
+Nodes (16): parseMultiPvIndex(), parseUciInfoLine(), summarizeGameAnalysis(), createAbortError(), createStockfishAnalyzer(), analyzeGame(), analyzePosition(), dispose() (+8 more)
 
-### Community 12 - "handleCompanionSnapshot"
-Cohesion: 0.11
-Nodes (40): formatEvalScore(), autoCollapseMobileNavOnAction(), copyCompanionRelayScript(), handleCompanionSnapshot(), renderAnalysisPanel(), renderCompanionBestMoveArrow(), renderCompanionEval(), renderCompanionProactiveTraps() (+32 more)
+### Community 12 - "analysisHelper.test.js"
+Cohesion: 0.06
+Nodes (81): CLASSIFICATION_KEYS, classifyMove(), computeConsecutiveBestMovesStreak(), computeMoveAccuracy(), DEFAULT_CONSECUTIVE_BEST_MOVES_THRESHOLD, detectBrilliantMove(), detectGreatMove(), evalToWinPercent() (+73 more)
 
 ### Community 14 - "resolveReviewViewState"
-Cohesion: 0.16
-Nodes (18): DEFAULT_LANGUAGE, initI18n(), resolveStorage(), setLanguage(), STORAGE_KEY, SUPPORTED_LANGUAGES, TRANSLATIONS, FILES (+10 more)
+Cohesion: 0.10
+Nodes (22): DEFAULT_LANGUAGE, initI18n(), resolveStorage(), setLanguage(), STORAGE_KEY, SUPPORTED_LANGUAGES, TRANSLATIONS, FILES (+14 more)
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `createGameService()` connect `createGameService` to `httpServer.js`, `httpServer.test.js`?**
-  _High betweenness centrality (0.091) - this node is a cross-community bridge._
+- **Why does `createGameService()` connect `createGameService` to `httpServer.js`, `resolveReviewViewState`, `httpServer.test.js`?**
+  _High betweenness centrality (0.090) - this node is a cross-community bridge._
 - **Are the 15 inferred relationships involving `createGameService()` (e.g. with `applyPlayerMove()` and `createGame()`) actually correct?**
   _`createGameService()` has 15 INFERRED edges - model-reasoned connections that need verification._
 - **Should `app.js` be split into smaller, more focused modules?**
-  _Cohesion score 0.05824111822947001 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.060399917542774684 - nodes in this community are weakly interconnected._
 - **Why does `chess.js` connect `aiEngine.js` to `httpServer.js`, `createGameService`?**
   _High betweenness centrality (0.049) - this node is a cross-community bridge._
 - **Should `httpServer.js` be split into smaller, more focused modules?**
-  _Cohesion score 0.05827505827505827 - nodes in this community are weakly interconnected._
-- **Why does `createStockfishAnalyzer()` connect `analysisHelper.test.js` to `app.js`, `handleCompanionSnapshot`?**
+  _Cohesion score 0.07115384615384615 - nodes in this community are weakly interconnected._
+- **Why does `createStockfishAnalyzer()` connect `createStockfishAnalyzer` to `app.js`, `analysisHelper.test.js`?**
   _High betweenness centrality (0.022) - this node is a cross-community bridge._
 - **Should `createGameService` be split into smaller, more focused modules?**
   _Cohesion score 0.07592407592407592 - nodes in this community are weakly interconnected._

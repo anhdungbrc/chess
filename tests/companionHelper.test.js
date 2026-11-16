@@ -8,6 +8,7 @@ import {
   generateRelayScript,
   generateBookmarklet,
   inferTurnFromLastMove,
+  inferCastlingRights,
 } from '../public/companionHelper.js';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -210,4 +211,59 @@ test('generateRelayScript avoids board.game.move to preserve WebSocket live conn
   const script = generateRelayScript('http://localhost:3000');
   assert.ok(!script.includes('board.game.move('));
   assert.ok(!script.includes('board.game?.move('));
+});
+
+/**
+ * Validates inferCastlingRights computes and updates castling availability accurately from board grid.
+ * Ensures rights are revoked when kings or rooks leave starting squares, and never falsely restored.
+ */
+test('inferCastlingRights accurately derives and revokes castling rights from piece placement', () => {
+  // Starting position with all kings and rooks intact
+  const startGrid = gridFromPlacement('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR');
+  assert.equal(inferCastlingRights(startGrid, 'KQkq'), 'KQkq');
+
+  // White king moved (e.g. e1 to e2)
+  const whiteKingMovedGrid = gridFromPlacement('rnbqkbnr/pppppppp/8/8/8/4K3/PPPP1PPP/RNBQ1BNR');
+  assert.equal(inferCastlingRights(whiteKingMovedGrid, 'KQkq'), 'kq');
+
+  // White king returns to e1, but previous rights already revoked 'K' and 'Q'
+  assert.equal(inferCastlingRights(startGrid, 'kq'), 'kq');
+
+  // White rook on h1 moved or captured
+  const whiteH1RookGoneGrid = gridFromPlacement('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBN1');
+  assert.equal(inferCastlingRights(whiteH1RookGoneGrid, 'KQkq'), 'Qkq');
+
+  // White rook on a1 moved or captured
+  const whiteA1RookGoneGrid = gridFromPlacement('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/1NBQKBNR');
+  assert.equal(inferCastlingRights(whiteA1RookGoneGrid, 'KQkq'), 'Kkq');
+
+  // Black king moved (e.g. e8 to e7)
+  const blackKingMovedGrid = gridFromPlacement('rnbq1bnr/ppppkppp/8/8/8/8/PPPPPPPP/RNBQKBNR');
+  assert.equal(inferCastlingRights(blackKingMovedGrid, 'KQkq'), 'KQ');
+
+  // Black rook on h8 moved or captured
+  const blackH8RookGoneGrid = gridFromPlacement('rnbqkbn1/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR');
+  assert.equal(inferCastlingRights(blackH8RookGoneGrid, 'KQkq'), 'KQq');
+
+  // Black rook on a8 moved or captured
+  const blackA8RookGoneGrid = gridFromPlacement('1nbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR');
+  assert.equal(inferCastlingRights(blackA8RookGoneGrid, 'KQkq'), 'KQk');
+
+  // Both kings moved, no castling available
+  const noCastlingGrid = gridFromPlacement('rnbq1bnr/ppppkppp/8/8/8/4K3/PPPP1PPP/RNBQ1BNR');
+  assert.equal(inferCastlingRights(noCastlingGrid, 'KQkq'), '-');
+
+  // Invalid grid returns '-'
+  assert.equal(inferCastlingRights(null), '-');
+});
+
+/**
+ * Validates that generateRelayScript embeds castling rights logic and does not hardcode '-' for castling.
+ * This fixes the issue where Stockfish never recommends castling moves on synced Chess.com positions.
+ */
+test('generateRelayScript computes castling rights dynamically instead of hardcoding no-castling', () => {
+  const script = generateRelayScript('http://localhost:3000');
+  assert.ok(script.includes('inferCastlingRights'), 'Relay script must embed inferCastlingRights function');
+  assert.ok(!script.includes(" ' - - 0 1'"), 'Relay script must not hardcode - - 0 1');
+  assert.ok(script.includes('currentCastling'), 'Relay script must track current castling state');
 });

@@ -10,6 +10,7 @@ import {
   hasSamePlacement,
   inferMoveFromBoards,
   setFenTurn,
+  ensureFenCastlingRights,
   formatTrapCard,
   formatAntiStreakButtonText,
   formatContinuousAttackButtonText,
@@ -247,6 +248,36 @@ test('setFenTurn and hasSamePlacement operate on the FEN fields they own', () =>
   assert.equal(hasSamePlacement(START_FEN, START_FEN.replace(' w ', ' b ')), true);
   assert.equal(hasSamePlacement(START_FEN, MOVE_FEN), false);
   assert.equal(hasSamePlacement(null, START_FEN), false);
+});
+
+/**
+ * Verifies ensureFenCastlingRights preserves active castling rights or infers valid rights
+ * when the incoming FEN has '-' but kings and rooks remain on their starting squares.
+ */
+test('ensureFenCastlingRights restores and validates castling rights for Stockfish analysis', () => {
+  // 1. Starting position FEN with '-' for castling is restored to 'KQkq'
+  const startFenNoCastling = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1';
+  const restoredStart = ensureFenCastlingRights(startFenNoCastling, 'KQkq');
+  assert.equal(restoredStart.castling, 'KQkq');
+  assert.equal(restoredStart.fen, START_FEN);
+
+  // 2. Middle game position where Black's a8 rook moved (1rbqk2r), White intact
+  const midGameFen = '1rbqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R w - - 0 5';
+  const restoredMid = ensureFenCastlingRights(midGameFen, 'KQkq');
+  assert.equal(restoredMid.castling, 'KQk'); // Black h8 rook intact, Black a8 rook vacated
+  assert.ok(restoredMid.fen.includes(' w KQk - 0 5'));
+
+  // 3. FEN that already has explicit castling rights preserves them after grid verification
+  const explicitFen = '1rbqk2r/pppp1ppp/2n2n2/4p3/1bB1P3/2N2N2/PPPP1PPP/R1BQK2R w KQkq - 2 5';
+  const preserved = ensureFenCastlingRights(explicitFen, 'KQkq');
+  assert.equal(preserved.castling, 'KQk'); // a8 is empty, so 'q' revoked by grid check
+  assert.ok(preserved.fen.includes(' w KQk - 2 5'));
+
+  // 4. Kings already moved, returns '-'
+  const noRightsFen = '4k3/8/8/8/8/8/8/4K3 w - - 0 1';
+  const noRights = ensureFenCastlingRights(noRightsFen, 'KQkq');
+  assert.equal(noRights.castling, '-');
+  assert.equal(noRights.fen, '4k3/8/8/8/8/8/8/4K3 w - - 0 1');
 });
 
 /**

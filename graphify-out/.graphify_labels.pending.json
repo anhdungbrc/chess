@@ -2,13 +2,12 @@
   "0": "app.js",
   "1": "httpServer.js",
   "2": "createGameService",
-  "3": "trapHelper.js",
   "4": "chessUiHelper.test.js",
   "5": "aiEngine.js",
   "6": "httpServer.test.js",
   "7": "steps",
   "9": "services",
-  "11": "analysisHelper.test.js",
-  "12": "handleCompanionSnapshot",
+  "11": "createStockfishAnalyzer",
+  "12": "analysisHelper.test.js",
   "14": "resolveReviewViewState"
 }

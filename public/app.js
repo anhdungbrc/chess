@@ -30,6 +30,7 @@ import {
   inferMoveFromBoards,
   resolveCompanionBoardOrientation,
   resolveCompanionPrimaryHint,
+  ensureFenCastlingRights,
   setFenTurn,
 } from './companionUiHelper.js';
 import {
@@ -180,6 +181,7 @@ const state = {
   companionBestMoveStreak: 0,
   companionActiveComboChain: null,
   companionComboStep: 1,
+  companionCastlingRights: 'KQkq',
   companionSelectedMoveUci: null,
   companionActiveTargetMoveUci: null,
 };
@@ -1226,6 +1228,7 @@ async function handleCompanionSnapshot(snapshot) {
     state.companionKingSacrificeAttack = null;
     state.companionActiveComboChain = null;
     state.companionComboStep = 1;
+    state.companionCastlingRights = 'KQkq';
     renderCompanionTrapSuggestion(null);
     renderCompanionProactiveTraps(null);
   }
@@ -1361,9 +1364,15 @@ async function handleCompanionSnapshot(snapshot) {
     if (state.analyzer) {
       // Once a move is inferred from the board diff, the side to move is known for certain; override the relay's guess.
       const inferredMove = previousSnapshotFen ? inferMoveFromBoards(previousSnapshotFen, snapshot.fen) : null;
-      const analysisFen = inferredMove
+      const turnFen = inferredMove
         ? setFenTurn(snapshot.fen, inferredMove.moverColor === 'w' ? 'b' : 'w')
         : snapshot.fen;
+      // Ensure castling rights are preserved/inferred so Stockfish can accurately evaluate and suggest castling
+      const { fen: analysisFen, castling } = ensureFenCastlingRights(
+        turnFen,
+        state.companionCastlingRights
+      );
+      state.companionCastlingRights = castling;
       const targetMultiPv = state.companionContinuousAttackActive ? 3 : 2;
       const result = await state.analyzer.analyzePosition(analysisFen, {
         depth: 12,
