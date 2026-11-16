@@ -18,9 +18,9 @@
     "semantic_hash": ""
   },
   "public/app.js": {
-    "mtime": 1794815074.1839445,
-    "seen": 1794815452.6364143,
-    "ast_hash": "2136f4e8d9eef7a92f7596d32feef88d",
+    "mtime": 1794818680.4560056,
+    "seen": 1794818998.0639248,
+    "ast_hash": "7f644f1125cfdeb5b5b28b9caf87b0e4",
     "semantic_hash": ""
   },
   "public/chessAssets.js": {
@@ -36,21 +36,21 @@
     "semantic_hash": "214fab00d1c35258e0065bb425828b17"
   },
   "public/companionHelper.js": {
-    "mtime": 1794815410.7297058,
-    "seen": 1794815452.6364143,
-    "ast_hash": "5ef2960692f1ea551e783b13e972a46b",
+    "mtime": 1794818201.9720173,
+    "seen": 1794818657.2962432,
+    "ast_hash": "d979b1b05e248d392a40e0487c2a9f97",
     "semantic_hash": ""
   },
   "public/companionUiHelper.js": {
-    "mtime": 1794815074.4478018,
-    "seen": 1794815452.6364143,
-    "ast_hash": "fcffad82da97abd8285c759995d9b975",
+    "mtime": 1794818979.2399445,
+    "seen": 1794818998.0639248,
+    "ast_hash": "93ad21b59c9a9314bef93fce8dcf3349",
     "semantic_hash": ""
   },
   "public/i18n.js": {
-    "mtime": 1794812041.5769532,
-    "seen": 1794812608.4225152,
-    "ast_hash": "3c2e1c395e96818eb96f7c550492b6d5",
+    "mtime": 1794817991.858184,
+    "seen": 1794818189.9319174,
+    "ast_hash": "2b4ee37d819db4ab1c6a7ea6869c39a9",
     "semantic_hash": ""
   },
   "public/reviewHelper.js": {
@@ -84,9 +84,9 @@
     "semantic_hash": "f7d733cc69813187ad3b49ff650d312e"
   },
   "src/domain/companionDomain.js": {
-    "mtime": 1794815074.4868016,
-    "seen": 1794815452.6364143,
-    "ast_hash": "44e23deaa3d6885c32dd95184638fde3",
+    "mtime": 1794817991.993311,
+    "seen": 1794818189.9319174,
+    "ast_hash": "1137e795560687082d782c453c1a8716",
     "semantic_hash": ""
   },
   "src/domain/timeControls.js": {
@@ -108,21 +108,21 @@
     "semantic_hash": "0e6f7ef1e516a84b0442e05196afe01e"
   },
   "src/server/httpServer.js": {
-    "mtime": 1794812648.8928165,
-    "seen": 1794813722.1106482,
-    "ast_hash": "04bc8d20332f18657b7b8106971ef46d",
+    "mtime": 1794817992.229846,
+    "seen": 1794818189.9319174,
+    "ast_hash": "5f70a925e695f9bdfe9215f696c74e74",
     "semantic_hash": ""
   },
   "src/server/validators.js": {
-    "mtime": 1794810929.6471162,
-    "seen": 1794812608.4225152,
-    "ast_hash": "4268433bda2f655fd163e52f5c505ab7",
+    "mtime": 1794817992.2668476,
+    "seen": 1794818189.9319174,
+    "ast_hash": "9de84678ef1b35f1e8ead5cbf1bb1965",
     "semantic_hash": ""
   },
   "src/service/companionService.js": {
-    "mtime": 1794812648.9348328,
-    "seen": 1794813722.1106482,
-    "ast_hash": "56100a40dfb2508e2c9ec7b2aca7b2d0",
+    "mtime": 1794817992.3058448,
+    "seen": 1794818189.9319174,
+    "ast_hash": "4b2c33149aa2976038e329604abcfe23",
     "semantic_hash": ""
   },
   "src/service/gameService.js": {
@@ -156,33 +156,33 @@
     "semantic_hash": "6704ac94da245e505856ace74d750c67"
   },
   "tests/companionDomain.test.js": {
-    "mtime": 1794814209.8950381,
-    "seen": 1794814585.9174492,
-    "ast_hash": "95853c525c8dc858f20e0fcc88d22d81",
+    "mtime": 1794817992.3435404,
+    "seen": 1794818189.9319174,
+    "ast_hash": "2572108992485d64d1ebbe85fb24a604",
     "semantic_hash": ""
   },
   "tests/companionHelper.test.js": {
-    "mtime": 1794815285.2663863,
-    "seen": 1794815452.6364143,
-    "ast_hash": "416cd95c2bbe1f57426b2750ba1e178e",
+    "mtime": 1794818202.2609458,
+    "seen": 1794818657.2962432,
+    "ast_hash": "25d731a17f31e90260e1d8cfda5ca0dd",
     "semantic_hash": ""
   },
   "tests/companionHttp.test.js": {
-    "mtime": 1794811148.786807,
-    "seen": 1794812608.4225152,
-    "ast_hash": "f5b03acb031ba1bf15631d07da42a2a6",
+    "mtime": 1794817992.420055,
+    "seen": 1794818189.9319174,
+    "ast_hash": "96362d3c33a3349a57f9dc8a80cc96ca",
     "semantic_hash": ""
   },
   "tests/companionService.test.js": {
-    "mtime": 1794810985.1035018,
-    "seen": 1794812608.4225152,
-    "ast_hash": "00f9c4dfaa9cfc15aa17627166bcb5b4",
+    "mtime": 1794817992.477421,
+    "seen": 1794818189.9319174,
+    "ast_hash": "0100129191207bf4038be9ec9d48f8b4",
     "semantic_hash": ""
   },
   "tests/companionUi.test.js": {
-    "mtime": 1794815074.5743475,
-    "seen": 1794815452.6364143,
-    "ast_hash": "f56e85ac89400446cb12d7ceffce8119",
+    "mtime": 1794818842.4132211,
+    "seen": 1794818998.0639248,
+    "ast_hash": "f33bcdd39da59d9dc1a39fb66947ee97",
     "semantic_hash": ""
   },
   "tests/gameService.test.js": {
@@ -234,9 +234,9 @@
     "semantic_hash": ""
   },
   "public/index.html": {
-    "mtime": 1794812078.5768661,
-    "seen": 1794812608.4225152,
-    "ast_hash": "332d0ac868d1d03b7561d518502e94a0",
+    "mtime": 1794817991.9002755,
+    "seen": 1794818189.9319174,
+    "ast_hash": "87031eb45457e57796369b398d20bb4b",
     "semantic_hash": ""
   },
   "public/favicon.svg": {

@@ -3,12 +3,10 @@ import assert from 'node:assert/strict';
 import {
   parseCompanionSnapshot,
   normalizeLastMove,
-  parseAutoMoveCommand,
   CompanionValidationError,
 } from '../src/domain/companionDomain.js';
 import {
   validateCompanionSyncInput,
-  validateAutoMoveCommandInput,
   ValidationError,
 } from '../src/server/validators.js';
 
@@ -116,69 +114,4 @@ test('validateCompanionSyncInput validates request payloads and maps to Validati
   );
 });
 
-/**
- * Validates parseAutoMoveCommand normalizes valid UCI moves and enforces delay bounds.
- */
-test('parseAutoMoveCommand normalizes valid UCI moves and enforces delay bounds', () => {
-  const result = parseAutoMoveCommand({
-    moveUci: 'e2e4',
-    fen: START_FEN,
-    delayMs: 650,
-    enabled: true,
-  });
-  assert.equal(result.moveUci, 'e2e4');
-  assert.equal(result.fen, START_FEN);
-  assert.equal(result.delayMs, 650);
-  assert.equal(result.enabled, true);
 
-  // Promotion move e7e8q
-  const promo = parseAutoMoveCommand({ moveUci: 'e7e8q' });
-  assert.equal(promo.moveUci, 'e7e8q');
-  assert.equal(promo.fen, null);
-  assert.equal(promo.enabled, true);
-  assert.ok(promo.delayMs >= 0);
-
-  // Rejection of invalid UCI
-  assert.throws(
-    () => parseAutoMoveCommand({ moveUci: 'invalid' }),
-    (err) => err instanceof CompanionValidationError && err.message.includes('moveUci')
-  );
-  assert.throws(
-    () => parseAutoMoveCommand({ moveUci: 'e2e9' }),
-    (err) => err instanceof CompanionValidationError && err.message.includes('moveUci')
-  );
-  assert.throws(
-    () => parseAutoMoveCommand(null),
-    (err) => err instanceof CompanionValidationError
-  );
-});
-
-/**
- * Validates that parseAutoMoveCommand accommodates human delays up to 20s-30s without premature clamping.
- */
-test('parseAutoMoveCommand allows human delay ranges up to 30000ms', () => {
-  const cmd20s = parseAutoMoveCommand({
-    moveUci: 'e2e4',
-    delayMs: 20000,
-  });
-  assert.equal(cmd20s.delayMs, 20000);
-
-  const cmd35s = parseAutoMoveCommand({
-    moveUci: 'e2e4',
-    delayMs: 35000,
-  });
-  assert.equal(cmd35s.delayMs, 30000);
-});
-
-/**
- * Validates that validateAutoMoveCommandInput maps CompanionValidationError to ValidationError.
- */
-test('validateAutoMoveCommandInput wraps validation errors in ValidationError', () => {
-  const valid = validateAutoMoveCommandInput({ moveUci: 'g1f3' });
-  assert.equal(valid.moveUci, 'g1f3');
-
-  assert.throws(
-    () => validateAutoMoveCommandInput({ moveUci: 'bad' }),
-    (err) => err instanceof ValidationError
-  );
-});

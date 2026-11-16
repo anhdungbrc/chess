@@ -461,6 +461,8 @@ export function formatTrapCard(trap, lang = 'vi') {
  *   streak?: number,
  *   threshold?: number,
  *   antiStreakActive?: boolean,
+ *   selectedMoveUci?: string | null,
+ *   isComboActive?: boolean,
  *   moverColor?: 'w' | 'b',
  *   lang?: 'vi' | 'en',
  * }} params - Hint resolution parameters.
@@ -488,6 +490,7 @@ export function resolveCompanionPrimaryHint({
   continuousAttackActive = false,
   kingSacrifice = null,
   selectedMoveUci = null,
+  isComboActive = false,
   moverColor = 'w',
   lang = 'vi',
 }) {
@@ -512,7 +515,54 @@ export function resolveCompanionPrimaryHint({
     };
   }
 
-  // 1. Continuous King-Sacrifice Attack Mode takes priority when active and a sacrificial attack exists
+  // 1. Combo Trap / Trap Mode takes priority to execute combos and punishments
+  if ((trapModeActive || isComboActive) && trap?.suggestedMoveUci) {
+    const trapName = trap.name?.[lang] || trap.name?.vi || (isEn ? 'Trap' : 'Đòn bẫy');
+    const primaryMoveUci = trap.suggestedMoveUci;
+    const isDefensive = trap.type === 'defensive';
+    // Red arrow for all trap recommendations
+    const primaryColor = 'rgba(239, 68, 68, 0.95)';
+
+    let label = '';
+    if (isDefensive) {
+      const avoid = trap.punishAvoidUci
+        ? isEn
+          ? `Avoid ${trap.punishAvoidUci}, `
+          : `Tránh ${trap.punishAvoidUci}, `
+        : '';
+      label = isEn
+        ? `⚠️ Trap Alert: ${avoid}play ${primaryMoveUci} (${trapName})`
+        : `⚠️ Cảnh báo bẫy: ${avoid}hãy đi ${primaryMoveUci} (${trapName})`;
+    } else if (trap.isExtremeSacrifice) {
+      label = isEn
+        ? `🔥 Extreme Sacrifice: ${primaryMoveUci} (${trapName})`
+        : `🔥 Thí quân cực mạnh: ${primaryMoveUci} (${trapName})`;
+    } else if (isComboActive) {
+      label = isEn
+        ? `🏹 Combo Punishment: ${primaryMoveUci} (${trapName})`
+        : `🏹 Trừng phạt đòn bẫy: ${primaryMoveUci} (${trapName})`;
+    } else if (trap.isRisky) {
+      label = isEn
+        ? `🏹 Risky Trap: ${primaryMoveUci} (${trapName})`
+        : `🏹 Bẫy mạo hiểm: ${primaryMoveUci} (${trapName})`;
+    } else {
+      label = isEn
+        ? `🏹 Trap Move: ${primaryMoveUci} (${trapName})`
+        : `🏹 Nước giăng bẫy: ${primaryMoveUci} (${trapName})`;
+    }
+
+    return {
+      label,
+      primaryMoveUci,
+      primaryColor,
+      isAttackSacrificePrimary: false,
+      isTrapPrimary: true,
+      isAntiStreakPrimary: false,
+      sequence: Array.isArray(trap.sequence) ? trap.sequence : [],
+    };
+  }
+
+  // 2. Continuous King-Sacrifice Attack Mode takes priority when active and a sacrificial attack exists
   if (continuousAttackActive && kingSacrifice?.suggestedMoveUci) {
     const attackName =
       kingSacrifice.name?.[lang] || kingSacrifice.name?.vi || (isEn ? 'King Hunt Attack' : 'Tấn công vào Vua');
@@ -532,7 +582,7 @@ export function resolveCompanionPrimaryHint({
     };
   }
 
-  // 2. Anti-Streak Protection: When player has played consecutive best moves >= threshold, suggest safe 2nd move
+  // 3. Anti-Streak Protection: When player has played consecutive best moves >= threshold, suggest safe 2nd move
   if (antiStreakActive && streak >= threshold) {
     if (secondBestMoveUci) {
       const isSafe = isSafeRunnerUpMove({ bestEval, secondBestEval, moverColor });
@@ -566,50 +616,10 @@ export function resolveCompanionPrimaryHint({
     }
   }
 
-  // 2. When Trap Mode is enabled and a trap is detected, elevate the trap to primary recommendation
-  if (trapModeActive && trap?.suggestedMoveUci) {
-    const trapName = trap.name?.[lang] || trap.name?.vi || (isEn ? 'Trap' : 'Đòn bẫy');
-    const primaryMoveUci = trap.suggestedMoveUci;
-    const isDefensive = trap.type === 'defensive';
-    // Red arrow for all trap recommendations
-    const primaryColor = 'rgba(239, 68, 68, 0.95)';
 
-    let label = '';
-    if (isDefensive) {
-      const avoid = trap.punishAvoidUci
-        ? isEn
-          ? `Avoid ${trap.punishAvoidUci}, `
-          : `Tránh ${trap.punishAvoidUci}, `
-        : '';
-      label = isEn
-        ? `⚠️ Trap Alert: ${avoid}play ${primaryMoveUci} (${trapName})`
-        : `⚠️ Cảnh báo bẫy: ${avoid}hãy đi ${primaryMoveUci} (${trapName})`;
-    } else if (trap.isExtremeSacrifice) {
-      label = isEn
-        ? `🔥 Extreme Sacrifice: ${primaryMoveUci} (${trapName})`
-        : `🔥 Thí quân cực mạnh: ${primaryMoveUci} (${trapName})`;
-    } else if (trap.isRisky) {
-      label = isEn
-        ? `🏹 Risky Trap: ${primaryMoveUci} (${trapName})`
-        : `🏹 Bẫy mạo hiểm: ${primaryMoveUci} (${trapName})`;
-    } else {
-      label = isEn
-        ? `🏹 Trap Move: ${primaryMoveUci} (${trapName})`
-        : `🏹 Nước giăng bẫy: ${primaryMoveUci} (${trapName})`;
-    }
-
-    return {
-      label,
-      primaryMoveUci,
-      primaryColor,
-      isTrapPrimary: true,
-      isAntiStreakPrimary: false,
-      sequence: Array.isArray(trap.sequence) ? trap.sequence : [],
-    };
-  }
 
   // When Trap Mode is enabled but no trap is available in this position, clarify status
-  if (trapModeActive && !trap) {
+  if (trapModeActive && !trap && !isComboActive) {
     const moveStr = bestMoveUci || '-';
     const label = isEn
       ? `Best Move: ${moveStr}${cleanScore} • No trap in this position`
@@ -761,30 +771,5 @@ export function formatProactiveTrapList(candidates, lang = 'vi') {
   });
 }
 
-/**
- * Formats user-facing label and title for the Companion Auto-move toggle button.
- *
- * @param {boolean} enabled - Whether auto-move is currently active.
- * @param {number | string} [delay='3-10s'] - Configured move delay in milliseconds or formatted range label.
- * @param {'vi' | 'en'} [lang='vi'] - Active interface language.
- * @returns {{ buttonText: string, titleText: string }} Presentation labels.
- */
-export function formatAutoMoveButtonText(enabled, delay = '3-10s', lang = 'vi') {
-  const isEn = lang === 'en';
-  if (enabled) {
-    const delayStr = typeof delay === 'number' ? ` (~${delay}ms)` : ` (${delay})`;
-    return {
-      buttonText: isEn ? `⚡ Auto-move: ON${delayStr}` : `⚡ Tự động đánh: BẬT${delayStr}`,
-      titleText: isEn
-        ? 'Auto-move mode is ACTIVE. Click to disable.'
-        : 'Chế độ tự động đánh theo gợi ý đang BẬT. Bấm để tắt.',
-    };
-  }
-  return {
-    buttonText: isEn ? '⚡ Auto-move: OFF' : '⚡ Tự động đánh: TẮT',
-    titleText: isEn
-      ? 'Click to enable auto-move mode on Chess.com.'
-      : 'Bấm để bật chế độ tự động đánh theo gợi ý trên Chess.com.',
-  };
-}
+
 

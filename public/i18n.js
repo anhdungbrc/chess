@@ -185,9 +185,6 @@ export const TRANSLATIONS = Object.freeze({
     'companion.attackModeOn': '🔥 Tấn công thí quân: ĐANG BẬT',
     'companion.attackModeOff': '🔥 Tấn công thí quân: TẮT',
     'companion.attackModeDesc': 'Bất chấp thí quân xé toang đường tấn công vào Vua đối phương',
-    'companion.autoMoveOn': '⚡ Tự động đánh: BẬT',
-    'companion.autoMoveOff': '⚡ Tự động đánh: TẮT',
-    'companion.autoMoveTitle': 'Tự động thực hiện nước cờ theo gợi ý trên Chess.com',
   }),
   en: Object.freeze({
     'app.title': 'Play Chess vs Bots — Chess.com Style',
@@ -357,9 +354,6 @@ export const TRANSLATIONS = Object.freeze({
     'companion.attackModeOn': '🔥 King Hunt Sacrifice: ACTIVE',
     'companion.attackModeOff': '🔥 King Hunt Sacrifice: OFF',
     'companion.attackModeDesc': 'Relentlessly sacrifices pieces to shatter the enemy king defense',
-    'companion.autoMoveOn': '⚡ Auto-move: ON',
-    'companion.autoMoveOff': '⚡ Auto-move: OFF',
-    'companion.autoMoveTitle': 'Automatically play suggested moves on Chess.com',
   }),
 });
 

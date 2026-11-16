@@ -15,7 +15,6 @@ import {
   formatContinuousAttackButtonText,
   resolveCompanionPrimaryHint,
   formatProactiveTrapList,
-  formatAutoMoveButtonText,
 } from '../public/companionUiHelper.js';
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -609,33 +608,7 @@ test('resolveCompanionPrimaryHint elevates king hunt sacrifice moves when contin
   assert.ok(resultNone.label.includes('Chưa có cơ hội thí quân'));
 });
 
-/**
- * Validates formatAutoMoveButtonText formats button text and tooltips in Vietnamese and English.
- */
-test('formatAutoMoveButtonText formats button text and tooltips accurately', () => {
-  const onVi = formatAutoMoveButtonText(true, 650, 'vi');
-  assert.ok(onVi.buttonText.includes('BẬT'));
-  assert.ok(onVi.buttonText.includes('650ms'));
-  assert.ok(onVi.titleText.includes('Bấm để tắt'));
 
-  const offVi = formatAutoMoveButtonText(false, 650, 'vi');
-  assert.ok(offVi.buttonText.includes('TẮT'));
-  assert.ok(offVi.titleText.includes('Bấm để bật'));
-
-  const onEn = formatAutoMoveButtonText(true, 500, 'en');
-  assert.ok(onEn.buttonText.includes('ON'));
-  assert.ok(onEn.titleText.includes('disable'));
-
-  const randomOnVi = formatAutoMoveButtonText(true, '3-10s', 'vi');
-  assert.ok(randomOnVi.buttonText.includes('BẬT (3-10s)'));
-
-  const defaultOnVi = formatAutoMoveButtonText(true, undefined, 'vi');
-  assert.ok(defaultOnVi.buttonText.includes('BẬT (3-10s)'));
-
-  const offEn = formatAutoMoveButtonText(false, 500, 'en');
-  assert.ok(offEn.buttonText.includes('OFF'));
-  assert.ok(offEn.titleText.includes('enable'));
-});
 
 /**
  * Validates resolveCompanionPrimaryHint respects selectedMoveUci overrides from interactive trap selection.
@@ -655,6 +628,80 @@ test('resolveCompanionPrimaryHint respects user-selected move override from trap
   assert.equal(result.primaryMoveUci, 'f3e5');
   assert.equal(result.primaryColor, 'rgba(239, 68, 68, 0.95)');
   assert.ok(result.label.includes('f3e5'));
+});
+
+/**
+ * Validates resolveCompanionPrimaryHint prioritizes active combo punishment moves even when trapModeActive is false.
+ */
+test('resolveCompanionPrimaryHint prioritizes active combo trap moves even when trapModeActive is false', () => {
+  const comboTrap = {
+    id: 'fishing_pole',
+    name: { vi: 'Bẫy Cần Câu (Fishing Pole)', en: 'Fishing Pole Trap' },
+    type: 'offensive',
+    suggestedMoveUci: 'd8h4',
+    sequence: [
+      { move: 'g4h2', san: 'hxg4', label: { vi: '1. Mở cột h', en: '1. Open h-file' } },
+      { move: 'd8h4', san: 'Qh4', label: { vi: '2. Hậu lao vào trừng phạt', en: '2. Queen punishes' } },
+    ],
+  };
+
+  const result = resolveCompanionPrimaryHint({
+    bestMoveUci: 'f8e7',
+    scoreText: '+3.5',
+    trap: comboTrap,
+    trapModeActive: false, // User has not explicitly toggled Trap Mode button ON
+    isComboActive: true,   // Active combo chain in progress
+    lang: 'vi',
+  });
+
+  // Verify that active combo punishment takes priority over engine move
+  assert.equal(result.primaryMoveUci, 'd8h4');
+  assert.equal(result.primaryColor, 'rgba(239, 68, 68, 0.95)');
+  assert.equal(result.isTrapPrimary, true);
+  assert.ok(result.label.includes('d8h4'));
+});
+
+/**
+ * Validates resolveCompanionPrimaryHint prioritizes combo traps over continuous attack and anti-streak.
+ */
+test('resolveCompanionPrimaryHint prioritizes combo trap over continuous attack and anti-streak', () => {
+  const comboTrap = {
+    id: 'legal_trap',
+    name: { vi: 'Bẫy Légal', en: "Légal's Trap" },
+    type: 'offensive',
+    suggestedMoveUci: 'd1h5',
+    sequence: [{ move: 'd1h5', san: 'Qh5#' }],
+  };
+
+  const kingSacrificeAttack = {
+    name: { vi: 'Thí Xe phá thành', en: 'Rook Sacrifice' },
+    suggestedMoveUci: 'h1h7',
+    sequence: [{ move: 'h1h7', san: 'Rxh7+' }],
+  };
+
+  // Both combo trap, continuous attack and high streak are active simultaneously
+  const result = resolveCompanionPrimaryHint({
+    bestMoveUci: 'e2e4',
+    trap: comboTrap,
+    isComboActive: true,
+    continuousAttackActive: true,
+    kingSacrifice: kingSacrificeAttack,
+    antiStreakActive: true,
+    streak: 12,
+    threshold: 5,
+    secondBestMoveUci: 'd2d4',
+    secondBestEval: { cp: 50, mate: null },
+    bestEval: { cp: 60, mate: null },
+    moverColor: 'w',
+    lang: 'vi',
+  });
+
+  // Combo trap MUST win over continuous attack and anti-streak
+  assert.equal(result.primaryMoveUci, 'd1h5');
+  assert.equal(result.isTrapPrimary, true);
+  assert.equal(result.isAttackSacrificePrimary, false);
+  assert.equal(result.isAntiStreakPrimary, false);
+  assert.ok(result.label.includes('d1h5'));
 });
 
 

@@ -14,7 +14,6 @@ import {
 } from '../service/gameService.js';
 import { createCompanionService } from '../service/companionService.js';
 import {
-  validateAutoMoveCommandInput,
   validateCompanionSyncInput,
   validateCreateGameInput,
   validateDrawActionInput,
@@ -347,42 +346,7 @@ export function createHttpServer({
         }
       }
 
-      if (pathname === '/api/companion/auto-move') {
-        if (req.method === 'OPTIONS') {
-          res.writeHead(204, CORS_HEADERS);
-          res.end();
-          return;
-        }
-        if (req.method === 'POST') {
-          const body = await readJsonBody(req);
-          const input = validateAutoMoveCommandInput(body);
-          const saved = companionService.setAutoMoveCommand(input);
-          sendJson(res, 200, { ok: true, command: saved }, CORS_HEADERS);
-          return;
-        }
-      }
 
-      if (pathname === '/api/companion/command') {
-        if (req.method === 'OPTIONS') {
-          res.writeHead(204, CORS_HEADERS);
-          res.end();
-          return;
-        }
-        if (req.method === 'GET') {
-          sendJson(
-            res,
-            200,
-            { command: companionService.getLatestAutoMoveCommand() },
-            CORS_HEADERS
-          );
-          return;
-        }
-        if (req.method === 'DELETE') {
-          companionService.clearAutoMoveCommand();
-          sendJson(res, 200, { ok: true }, CORS_HEADERS);
-          return;
-        }
-      }
 
       if (req.method === 'GET' && pathname === '/api/companion/latest') {
         sendJson(res, 200, { snapshot: companionService.getLatestSnapshot() }, CORS_HEADERS);

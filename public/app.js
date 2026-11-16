@@ -17,11 +17,9 @@ import {
 import {
   generateBookmarklet,
   generateRelayScript,
-  getRandomAutoMoveDelayMs,
 } from './companionHelper.js';
 import {
   formatAntiStreakButtonText,
-  formatAutoMoveButtonText,
   formatBestMoveHint,
   formatCompanionStatus,
   formatContinuousAttackButtonText,
@@ -182,9 +180,6 @@ const state = {
   companionBestMoveStreak: 0,
   companionActiveComboChain: null,
   companionComboStep: 1,
-  companionAutoMoveActive: false,
-  companionAutoMoveDelayMs: 650,
-  companionLastAutoMovedFen: null,
   companionSelectedMoveUci: null,
   companionActiveTargetMoveUci: null,
 };
@@ -252,7 +247,6 @@ const elements = {
   companionTrapToggleBtn: document.getElementById('companion-trap-toggle-btn'),
   companionAttackToggleBtn: document.getElementById('companion-attack-toggle-btn'),
   companionAntiStreakToggleBtn: document.getElementById('companion-anti-streak-toggle-btn'),
-  companionAutoMoveToggleBtn: document.getElementById('companion-auto-move-toggle-btn'),
   companionTrapBadge: document.getElementById('companion-trap-badge'),
   companionTrapTitle: document.getElementById('companion-trap-title'),
   companionTrapMove: document.getElementById('companion-trap-move'),
@@ -573,7 +567,7 @@ function renderCompanionBoard(boardGrid, lastMove, grade = null) {
 
 /**
  * Draws the active guidance move arrow on the companion board overlay.
- * Guarantees that only one clear guidance arrow is drawn, matching the auto-move target.
+ * Guarantees that only one clear guidance arrow is drawn for the recommended move.
  *
  * @param {string | null} targetMoveUci - UCI coordinate move string (e.g. 'e7e5') or null.
  * @param {string | null} [arrowColor=null] - Optional custom CSS color for the arrow.
@@ -713,9 +707,6 @@ function renderCompanionTrapSuggestion(trap) {
             elements.companionBestmoveLabel.textContent = `🏹 ${card.moveText}`;
             elements.companionBestmoveLabel.style.color = '#ef4444';
           }
-          if (state.companionSnapshot?.fen) {
-            dispatchCompanionAutoMove(card.moveUci, state.companionSnapshot.fen);
-          }
         }
       });
       elements.companionTrapMove.appendChild(moveBtn);
@@ -753,6 +744,29 @@ function renderCompanionTrapSuggestion(trap) {
         if (step.label) {
           pill.setAttribute('title', step.label);
         }
+        if (step.move) {
+          pill.setAttribute('role', 'button');
+          pill.setAttribute('tabindex', '0');
+          pill.style.cursor = 'pointer';
+          const onSelectStep = () => {
+            state.companionSelectedMoveUci = step.move;
+            state.companionActiveTargetMoveUci = step.move;
+            renderCompanionBestMoveArrow(step.move, 'rgba(239, 68, 68, 0.95)');
+            if (elements.companionBestmoveLabel) {
+              const moveText = step.san || step.move;
+              const stepLabel = step.label ? ` (${step.label})` : '';
+              elements.companionBestmoveLabel.textContent = `🏹 ${moveText}${stepLabel}`;
+              elements.companionBestmoveLabel.style.color = '#ef4444';
+            }
+          };
+          pill.addEventListener('click', onSelectStep);
+          pill.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onSelectStep();
+            }
+          });
+        }
         elements.companionTrapRoadmap.appendChild(pill);
       });
     } else {
@@ -780,6 +794,31 @@ function renderCompanionTrapSuggestion(trap) {
 
         pill.appendChild(moveSpan);
         pill.appendChild(labelSpan);
+
+        if (step.move) {
+          pill.setAttribute('role', 'button');
+          pill.setAttribute('tabindex', '0');
+          pill.style.cursor = 'pointer';
+          const onSelectSeqStep = () => {
+            state.companionSelectedMoveUci = step.move;
+            state.companionActiveTargetMoveUci = step.move;
+            renderCompanionBestMoveArrow(step.move, 'rgba(239, 68, 68, 0.95)');
+            if (elements.companionBestmoveLabel) {
+              const moveText = step.san || step.move;
+              const stepTitle = step.label?.[lang] || step.label?.vi || '';
+              const titleExtra = stepTitle ? ` (${stepTitle})` : '';
+              elements.companionBestmoveLabel.textContent = `🏹 ${moveText}${titleExtra}`;
+              elements.companionBestmoveLabel.style.color = '#ef4444';
+            }
+          };
+          pill.addEventListener('click', onSelectSeqStep);
+          pill.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onSelectSeqStep();
+            }
+          });
+        }
         elements.companionTrapSequence.appendChild(pill);
       }
     } else {
@@ -840,9 +879,6 @@ function renderCompanionProactiveTraps(candidates) {
       if (elements.companionBestmoveLabel) {
         elements.companionBestmoveLabel.textContent = `🏹 ${item.nextMoveText} (${item.name})`;
         elements.companionBestmoveLabel.style.color = '#ef4444';
-      }
-      if (state.companionSnapshot?.fen) {
-        dispatchCompanionAutoMove(item.setupMoveUci, state.companionSnapshot.fen);
       }
     };
 
@@ -912,6 +948,7 @@ function toggleCompanionTrapMode() {
         antiStreakActive: state.companionAntiStreakActive,
         continuousAttackActive: state.companionContinuousAttackActive,
         kingSacrifice: state.companionKingSacrificeAttack,
+        isComboActive: Boolean(state.companionActiveComboChain && state.companionTrapSuggestion?.suggestedMoveUci),
         moverColor: state.companionSnapshot.turn,
         lang,
       });
@@ -990,6 +1027,7 @@ function toggleCompanionContinuousAttackMode() {
         antiStreakActive: state.companionAntiStreakActive,
         continuousAttackActive: state.companionContinuousAttackActive,
         kingSacrifice: state.companionKingSacrificeAttack,
+        isComboActive: Boolean(state.companionActiveComboChain && state.companionTrapSuggestion?.suggestedMoveUci),
         moverColor: state.companionSnapshot.turn,
         lang,
       });
@@ -1069,6 +1107,7 @@ function toggleCompanionAntiStreakMode() {
       antiStreakActive: state.companionAntiStreakActive,
       continuousAttackActive: state.companionContinuousAttackActive,
       kingSacrifice: state.companionKingSacrificeAttack,
+      isComboActive: Boolean(state.companionActiveComboChain && state.companionTrapSuggestion?.suggestedMoveUci),
       moverColor: state.companionSnapshot.turn,
       lang,
     });
@@ -1090,85 +1129,7 @@ function toggleCompanionAntiStreakMode() {
   }
 }
 
-/**
- * Synchronizes the auto-move toggle button label, styling, and tooltip with active state.
- *
- * @returns {void}
- */
-function updateAutoMoveToggleUI() {
-  if (!elements.companionAutoMoveToggleBtn) {
-    return;
-  }
-  const lang = getLanguage();
-  const textInfo = formatAutoMoveButtonText(
-    state.companionAutoMoveActive,
-    '3-10s',
-    lang
-  );
-  elements.companionAutoMoveToggleBtn.textContent = textInfo.buttonText;
-  elements.companionAutoMoveToggleBtn.title = textInfo.titleText;
-  elements.companionAutoMoveToggleBtn.setAttribute(
-    'aria-pressed',
-    String(state.companionAutoMoveActive)
-  );
-  elements.companionAutoMoveToggleBtn.classList.toggle('is-active', state.companionAutoMoveActive);
-}
 
-/**
- * Toggles companion auto-move mode on/off and persists preference to localStorage.
- *
- * @returns {void}
- */
-function toggleCompanionAutoMove() {
-  state.companionAutoMoveActive = !state.companionAutoMoveActive;
-  try {
-    localStorage.setItem('chess_companion_auto_move', String(state.companionAutoMoveActive));
-  } catch (err) {
-    console.debug('Failed to save auto-move state to localStorage:', err);
-  }
-  updateAutoMoveToggleUI();
-}
-
-/**
- * Dispatches an auto-move command to the companion server for execution on Chess.com.
- * Guarantees move strictly matches the active guidance arrow and player turn with a human-like 3-10s delay.
- *
- * @param {string} moveUci - Target move in UCI coordinate format (e.g. 'e2e4').
- * @param {string} fen - Current board FEN position.
- * @returns {void}
- */
-function dispatchCompanionAutoMove(moveUci, fen) {
-  if (!state.companionAutoMoveActive || !moveUci || !fen) {
-    return;
-  }
-  // Determine player color strictly from companion perspective
-  const playerColor = state.companionSnapshot?.orientation === 'black' ? 'b' : 'w';
-  const fenTurn = fen.trim().split(/\s+/)[1];
-  // Strict human turn enforcement: never dispatch or move when it is opponent's turn
-  if (fenTurn !== playerColor) {
-    return;
-  }
-  if (state.companionLastAutoMovedFen === fen) {
-    return;
-  }
-  state.companionLastAutoMovedFen = fen;
-
-  // Randomized human-like delay uniformly distributed between 3s and 10s
-  const randomizedDelayMs = getRandomAutoMoveDelayMs(3000, 10000);
-
-  fetch('/api/companion/auto-move', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      moveUci,
-      fen,
-      delayMs: randomizedDelayMs,
-      enabled: true,
-    }),
-  }).catch((err) => {
-    console.debug('Failed to dispatch auto-move command to companion server:', err);
-  });
-}
 
 /**
  * Updates the Eval Bar for companion evaluation scores.
@@ -1265,7 +1226,6 @@ async function handleCompanionSnapshot(snapshot) {
     state.companionKingSacrificeAttack = null;
     state.companionActiveComboChain = null;
     state.companionComboStep = 1;
-    state.companionLastAutoMovedFen = null;
     renderCompanionTrapSuggestion(null);
     renderCompanionProactiveTraps(null);
   }
@@ -1291,11 +1251,31 @@ async function handleCompanionSnapshot(snapshot) {
         suggestedMoveUci: chainProgression.nextMoveUci,
       };
       renderCompanionTrapSuggestion(state.companionTrapSuggestion);
+      if (chainProgression.nextMoveUci) {
+        state.companionActiveTargetMoveUci = chainProgression.nextMoveUci;
+        renderCompanionBestMoveArrow(chainProgression.nextMoveUci, 'rgba(239, 68, 68, 0.95)');
+        if (elements.companionBestmoveLabel) {
+          const lang = getLanguage();
+          const trapTitle =
+            state.companionActiveComboChain.name?.[lang] ||
+            state.companionActiveComboChain.name?.vi ||
+            '';
+          elements.companionBestmoveLabel.textContent =
+            lang === 'en'
+              ? `🏹 Combo Punishment: ${chainProgression.nextMoveUci} (${trapTitle})`
+              : `🏹 Trừng phạt đòn bẫy: ${chainProgression.nextMoveUci} (${trapTitle})`;
+          elements.companionBestmoveLabel.style.color = '#ef4444';
+        }
+      }
     } else if (chainProgression.status === 'pivoting') {
       state.companionActiveComboChain = chainProgression.trap;
       state.companionComboStep = 1;
       state.companionTrapSuggestion = chainProgression.trap;
       renderCompanionTrapSuggestion(chainProgression.trap);
+      if (chainProgression.trap?.suggestedMoveUci) {
+        state.companionActiveTargetMoveUci = chainProgression.trap.suggestedMoveUci;
+        renderCompanionBestMoveArrow(chainProgression.trap.suggestedMoveUci, 'rgba(239, 68, 68, 0.95)');
+      }
     } else if (chainProgression.status === 'completed' || chainProgression.status === 'broken') {
       state.companionActiveComboChain = null;
       state.companionComboStep = 1;
@@ -1432,14 +1412,20 @@ async function handleCompanionSnapshot(snapshot) {
 
       const scoreText = formatEvalScore(result.eval, snapshot.turn);
       // Coordinate trap suggestion from catalog or engine tactical heuristic
-      const trap = resolveTrapSuggestion({
+      const catalogOrTacticalTrap = resolveTrapSuggestion({
         fen: analysisFen,
         analysis: result,
         lastMove: snapshot.lastMove,
       });
+
+      // Preserve active continuous combo chain progression if one is ongoing
+      const isComboActive = Boolean(
+        state.companionActiveComboChain && state.companionTrapSuggestion?.suggestedMoveUci
+      );
+      const trap = isComboActive ? state.companionTrapSuggestion : catalogOrTacticalTrap;
       state.companionTrapSuggestion = trap;
-      if (trap) {
-        state.companionActiveComboChain = trap;
+      if (!state.companionActiveComboChain && catalogOrTacticalTrap) {
+        state.companionActiveComboChain = catalogOrTacticalTrap;
       }
 
       // Detect aggressive king-hunting piece sacrifices
@@ -1487,6 +1473,7 @@ async function handleCompanionSnapshot(snapshot) {
         continuousAttackActive: state.companionContinuousAttackActive,
         kingSacrifice,
         selectedMoveUci: state.companionSelectedMoveUci,
+        isComboActive,
         moverColor: analysisFen.trim().split(/\s+/)[1],
         lang,
       });
@@ -1509,9 +1496,6 @@ async function handleCompanionSnapshot(snapshot) {
         primaryHint.primaryMoveUci,
         primaryHint.primaryColor
       );
-
-      // Auto-move execution: dispatch command matching the active guidance arrow
-      dispatchCompanionAutoMove(primaryHint.primaryMoveUci, analysisFen);
     }
   } catch (err) {
     if (err?.name !== 'AbortError') {
@@ -2860,7 +2844,6 @@ function applyLanguage(lang) {
   updateTrapModeToggleUI();
   updateContinuousAttackToggleUI();
   updateAntiStreakToggleUI();
-  updateAutoMoveToggleUI();
 
   const fsMeta = resolveFullscreenButtonMetadata(state.isFullscreen, lang);
   if (elements.boardFullscreenBtn) {
@@ -4541,18 +4524,15 @@ async function bootstrapApp() {
     state.companionContinuousAttackActive = localStorage.getItem('chess_companion_attack_mode') === 'true';
     const antiStreakStored = localStorage.getItem('chess_companion_anti_streak');
     state.companionAntiStreakActive = antiStreakStored === null ? true : antiStreakStored === 'true';
-    state.companionAutoMoveActive = localStorage.getItem('chess_companion_auto_move') === 'true';
   } catch {
     state.companionTrapModeActive = false;
     state.companionContinuousAttackActive = false;
     state.companionAntiStreakActive = true;
-    state.companionAutoMoveActive = false;
   }
   applyLanguage(getLanguage());
   updateTrapModeToggleUI();
   updateContinuousAttackToggleUI();
   updateAntiStreakToggleUI();
-  updateAutoMoveToggleUI();
   setMobileNavCollapsed(true);
   setupMobileChatFabDrag();
   try {
@@ -4666,7 +4646,6 @@ elements.companionCopyScriptBtn?.addEventListener('click', copyCompanionRelayScr
 elements.companionTrapToggleBtn?.addEventListener('click', toggleCompanionTrapMode);
 elements.companionAttackToggleBtn?.addEventListener('click', toggleCompanionContinuousAttackMode);
 elements.companionAntiStreakToggleBtn?.addEventListener('click', toggleCompanionAntiStreakMode);
-elements.companionAutoMoveToggleBtn?.addEventListener('click', toggleCompanionAutoMove);
 elements.subtabMovesBtn.addEventListener('click', () => setPlaySubtab('moves'));
 elements.subtabChatBtn.addEventListener('click', () => setPlaySubtab('chat'));
 elements.chatForm.addEventListener('submit', (event) => {
